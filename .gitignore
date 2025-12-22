@@ -1,0 +1,50 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/nohup.out
+frontend/*.log
+
+# Backend .NET
+backend/**/bin/
+backend/**/obj/
+backend/**/nohup.out
+backend/**/*.log
+backend/**/.vs/
+backend/**/.vscode/
+
+# Environment files
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+nohup.out
+
+# Database
+*.db
+*.sqlite
+
+# Archives (опционально - раскомментируйте если не хотите загружать zip)
+# *.zip
+

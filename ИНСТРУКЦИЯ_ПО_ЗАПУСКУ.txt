@@ -1,0 +1,133 @@
+================================================================================
+ИНСТРУКЦИЯ ПО ЗАПУСКУ ПРОЕКТА "УМНЫЙ ДОМ"
+================================================================================
+
+ТРЕБОВАНИЯ:
+-----------
+- Docker и Docker Compose установлены
+- PostgreSQL 15+ (если запускаете БД локально)
+- .NET 9.0 SDK (если запускаете backend локально)
+- Node.js 18+ и npm (если запускаете frontend локально)
+
+================================================================================
+ВАРИАНТ 1: ЗАПУСК ЧЕРЕЗ DOCKER
+================================================================================
+
+1. ПОДГОТОВКА БАЗЫ ДАННЫХ
+   -----------------------
+   docker-compose up -d db
+
+2. ЗАПУСК BACKEND
+   ---------------
+      nohup dotnet run --project backend/SmartHome.API --urls "http://localhost:5000" &
+   
+   Backend будет доступен по адресу: http://localhost:5000
+   Swagger UI: http://localhost:5000/swagger
+
+3. ЗАПУСК FRONTEND
+   ---------------
+      cd frontend && npm install
+      nohup sh -c "cd frontend && npm run dev" &
+   
+   Frontend будет доступен по адресу: http://localhost:5173
+
+================================================================================
+ВАРИАНТ 2: ПОЛНЫЙ ЗАПУСК ЧЕРЕЗ DOCKER COMPOSE
+================================================================================
+
+cd /home/user/Downloads/for_studying/kp && docker-compose up --build -d       -- сборка
+kill 40800
+lsof -i :5173 | head -5
+pkill -f "vite|node.*5173" || true
+cd /home/user/Downloads/for_studying/kp && docker-compose up -d
+
+  docker-compose logs backend
+   docker-compose logs frontend
+   docker-compose logs db
+
+
+2. ЗАПУСК ВСЕХ СЕРВИСОВ
+   ---------------------
+      docker-compose up --build
+   
+    Backend будет доступен: http://localhost:5000
+    Frontend будет доступен: http://localhost:5173
+================================================================================
+ВАЖНЫЕ ЗАМЕЧАНИЯ
+================================================================================
+
+1. ПОРТЫ:
+   - PostgreSQL: 5432
+   - Backend API: 5000
+   - Frontend: 5173
+
+2. УЧЕТНЫЕ ДАННЫЕ БД (по умолчанию):
+   - Пользователь: admin
+   - Пароль: password123
+   - База данных: smarthome
+
+4. ОСТАНОВКА ПРИЛОЖЕНИЯ:
+   - Docker: docker-compose down
+
+5. АВТОЗАПУСК ПРИ ВКЛЮЧЕНИИ ПК:
+   - Контейнеры НЕ запускаются автоматически при загрузке системы
+   - Для запуска используйте: docker-compose up -d
+   - Для остановки: docker-compose down
+   - Локальный backend: Ctrl+C в терминале
+   - Локальный frontend: Ctrl+C в терминале
+
+5. ОЧИСТКА ДАННЫХ:
+   - Docker volumes: docker-compose down -v
+   - Локальная БД: DROP DATABASE smarthome; CREATE DATABASE smarthome;
+   - Локальная БД: DROP DATABASE smarthome; CREATE DATABASE smarthome;
+
+================================================================================
+СТРУКТУРА ПРОЕКТА
+================================================================================
+
+kp/
+├── backend/
+│   └── SmartHome.API/          # ASP.NET Core API
+│       ├── Controllers/         # API контроллеры
+│       ├── Models/              # Модели данных
+│       ├── DTOs/                # Data Transfer Objects
+│       ├── Services/            # Фоновые сервисы
+│       └── Program.cs           # Точка входа
+├── frontend/                    # React + TypeScript + Vite
+│   └── src/
+│       ├── components/          # React компоненты
+│       ├── pages/              # Страницы приложения
+│       └── api/                # API клиент
+├── create_database.sql          # SQL скрипт инициализации БД
+└── docker-compose.yml           # Docker Compose конфигурация
+
+================================================================================
+КОНТАКТЫ И ПОДДЕРЖКА
+================================================================================
+
+ЗАПУСК С ЛОГИРОВАНИЕМ (для отладки):
+
+1. Backend с записью в лог:
+   cd /home/user/Downloads/for_studying/kp && nohup dotnet run --project backend/SmartHome.API --urls "http://localhost:5000" > backend.log 2>&1 &
+   
+   Просмотр логов:
+   tail -f server.log
+   
+   Остановка:
+   pkill -f "dotnet run"
+
+2. Frontend с записью в лог:
+cd /home/user/Downloads/for_studying/kp && nohup sh -c "cd frontend && npm run dev" > frontend.log 2>&1 &
+   
+   Просмотр логов:
+   tail -f frontend.log
+
+3. БД (Docker):
+   docker-compose up -d db
+   
+   Просмотр логов:
+   docker logs -f smarthome_db
+
+================================================================================
+
+cd /home/user/Downloads/for_studying/kp && docker ps -a

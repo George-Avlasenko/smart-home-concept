@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: smarthome_db
+    # restart: always  # Отключен автозапуск
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: smarthome
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./create_database.sql:/docker-entrypoint-initdb.d/init.sql
+
+  backend:
+    build:
+      context: ./backend/SmartHome.API
+      dockerfile: Dockerfile
+    container_name: smarthome_backend
+    # restart: always  # Отключен автозапуск
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=smarthome;Username=admin;Password=password123
+      - ASPNETCORE_ENVIRONMENT=Development
+      - TZ=Europe/Moscow
+    ports:
+      - "5000:8080"
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: smarthome_frontend
+    # restart: always  # Отключен автозапуск
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
