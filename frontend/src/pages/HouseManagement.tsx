@@ -17,6 +17,7 @@ import { ScheduleDialog } from '../components/ScheduleDialog';
 import { api } from '../api/client';
 import type { House, Room, HouseUser, UserDevicePermission, Device, DeviceSchedule } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useSSE } from '../hooks/useSSE';
 
 interface DeviceEditItemProps {
     device: Device;
@@ -380,6 +381,93 @@ export const HouseManagement = () => {
     fetchHouses();
     fetchDevices();
   }, []);
+
+  // Подписка на события через SSE
+  useSSE({
+    onMessage: async (event) => {
+      console.log('SSE event received in HouseManagement:', event);
+      
+      switch (event.type) {
+        case 'house.created':
+        case 'house.updated':
+        case 'house.deleted':
+          fetchHouses();
+          break;
+        
+        case 'room.created':
+        case 'room.updated':
+        case 'room.deleted':
+          if (event.data.houseId) {
+            fetchRooms(event.data.houseId);
+          }
+          fetchDevices();
+          break;
+        
+        case 'device.created':
+        case 'device.updated':
+        case 'device.deleted':
+          fetchDevices();
+          if (selectedHouseId) {
+            fetchHouseDevices(selectedHouseId);
+          }
+          break;
+        
+        case 'device.status.updated':
+          // Обновляем только статус из события
+          setAllDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, status: event.data.status } 
+              : d
+          ));
+          setHouseDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, status: event.data.status } 
+              : d
+          ));
+          break;
+        
+        case 'device.settings.updated':
+          // Обновляем только settings из события
+          setAllDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, settings: { ...d.settings, ...event.data.settings } } 
+              : d
+          ));
+          setHouseDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, settings: { ...d.settings, ...event.data.settings } } 
+              : d
+          ));
+          break;
+        
+        case 'house.user.added':
+        case 'house.user.removed':
+        case 'house.user.role.updated':
+        case 'house.ownership.transferred':
+          if (selectedHouseId) {
+            fetchResidents(selectedHouseId);
+          }
+          break;
+        
+        case 'schedule.created':
+        case 'schedule.updated':
+        case 'schedule.deleted':
+        case 'schedule.toggled':
+          if (selectedDevice) {
+            // Перезагружаем расписания для выбранного устройства
+            // Это можно оптимизировать, но пока так
+          }
+          break;
+        
+        default:
+          // Игнорируем неизвестные события
+          break;
+      }
+    },
+    onError: (error) => {
+      console.error('SSE error in HouseManagement:', error);
+    },
+  });
 
   const showSuccess = (msg: string) => setSuccessMessage(msg);
   const handleCloseSnackbar = () => {

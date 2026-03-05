@@ -39,18 +39,27 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
   const [openSchedule, setOpenSchedule] = useState(false);
   const [openStats, setOpenStats] = useState(false);
 
+  // Обновляем localSettings при изменении settings извне (через SSE)
   useEffect(() => {
-      setLocalSettings(prev => ({ ...prev, ...settings }));
+      // Всегда синхронизируем localSettings с settings из пропсов
+      // Это гарантирует, что изменения от других пользователей отображаются
+      setLocalSettings(settings);
   }, [settings]);
 
+  // Отправляем изменения настроек на сервер с задержкой
   useEffect(() => {
-      const timer = setTimeout(() => {
-          if (JSON.stringify(settings) !== JSON.stringify(localSettings)) {
+      const settingsStr = JSON.stringify(settings);
+      const localStr = JSON.stringify(localSettings);
+      
+      // Отправляем только если localSettings отличаются от текущих settings
+      // и это не первичная загрузка
+      if (settingsStr !== localStr && Object.keys(localSettings).length > 0) {
+          const timer = setTimeout(() => {
               onSettingsChange?.(device.deviceId, localSettings);
-          }
-      }, 500);
-      return () => clearTimeout(timer);
-  }, [localSettings, device.deviceId]);
+          }, 500);
+          return () => clearTimeout(timer);
+      }
+  }, [localSettings]);
 
   const handleLocalChange = (key: string, value: any) => {
       setLocalSettings(prev => ({ ...prev, [key]: value }));

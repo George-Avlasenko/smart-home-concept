@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.DTOs;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 using System.Security.Claims;
 
 namespace SmartHome.API.Controllers;
@@ -13,10 +14,12 @@ namespace SmartHome.API.Controllers;
 public class HouseUsersController : ControllerBase
 {
     private readonly SmartHomeContext _context;
+    private readonly EventPublisher _eventPublisher;
 
-    public HouseUsersController(SmartHomeContext context)
+    public HouseUsersController(SmartHomeContext context, EventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     private int GetUserId()
@@ -134,6 +137,14 @@ public class HouseUsersController : ControllerBase
         _context.HouseUsers.Add(houseUser);
         await _context.SaveChangesAsync();
 
+        // Публикуем событие добавления жильца
+        await _eventPublisher.PublishAsync("house.user.added", new
+        {
+            houseId = houseId,
+            userId = targetUser.UserId,
+            role = houseUser.Role
+        });
+
         return Ok(new HouseUserDto
         {
             UserId = targetUser.UserId,
@@ -205,6 +216,13 @@ public class HouseUsersController : ControllerBase
 
         await _context.SaveChangesAsync();
 
+        // Публикуем событие удаления жильца
+        await _eventPublisher.PublishAsync("house.user.removed", new
+        {
+            houseId = houseId,
+            userId = targetUserId
+        });
+
         return NoContent();
     }
 
@@ -256,6 +274,14 @@ public class HouseUsersController : ControllerBase
 
         houseUser.Role = dto.Role;
         await _context.SaveChangesAsync();
+
+        // Публикуем событие изменения роли жильца
+        await _eventPublisher.PublishAsync("house.user.role.updated", new
+        {
+            houseId = houseId,
+            userId = targetUserId,
+            role = dto.Role
+        });
 
         return Ok(new { message = "Роль обновлена" });
     }
@@ -311,6 +337,14 @@ public class HouseUsersController : ControllerBase
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
+
+            // Публикуем событие передачи прав владения
+            await _eventPublisher.PublishAsync("house.ownership.transferred", new
+            {
+                houseId = houseId,
+                oldOwnerId = userId,
+                newOwnerId = newOwnerId
+            });
 
             return Ok(new { message = "Права владения переданы успешно" });
         }

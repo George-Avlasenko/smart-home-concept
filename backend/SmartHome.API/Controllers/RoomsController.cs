@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.DTOs;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 
 namespace SmartHome.API.Controllers;
 
@@ -13,10 +14,12 @@ namespace SmartHome.API.Controllers;
 public class RoomsController : ControllerBase
 {
     private readonly SmartHomeContext _context;
+    private readonly EventPublisher _eventPublisher;
 
-    public RoomsController(SmartHomeContext context)
+    public RoomsController(SmartHomeContext context, EventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     // POST: api/rooms
@@ -55,6 +58,14 @@ public class RoomsController : ControllerBase
 
         _context.Rooms.Add(room);
         await _context.SaveChangesAsync();
+
+        // Публикуем событие создания комнаты
+        await _eventPublisher.PublishAsync("room.created", new
+        {
+            roomId = room.RoomId,
+            houseId = room.HouseId,
+            roomName = room.RoomName
+        });
 
         return CreatedAtAction(nameof(GetRoom), new { id = room.RoomId }, new RoomDto
         {
@@ -113,8 +124,15 @@ public class RoomsController : ControllerBase
             return Forbid();
         }
 
+        var roomId = room.RoomId;
         _context.Rooms.Remove(room);
         await _context.SaveChangesAsync();
+
+        // Публикуем событие удаления комнаты
+        await _eventPublisher.PublishAsync("room.deleted", new
+        {
+            roomId = roomId
+        });
 
         return NoContent();
     }
@@ -147,6 +165,14 @@ public class RoomsController : ControllerBase
         // room.Floor = dto.Floor; // Можно и этаж обновить если надо
         
         await _context.SaveChangesAsync();
+
+        // Публикуем событие обновления комнаты
+        await _eventPublisher.PublishAsync("room.updated", new
+        {
+            roomId = room.RoomId,
+            roomName = room.RoomName,
+            houseId = room.HouseId
+        });
 
         return Ok(new RoomDto
         {

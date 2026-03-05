@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.DTOs;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 using System.Security.Claims;
 
 namespace SmartHome.API.Controllers
@@ -13,10 +14,12 @@ namespace SmartHome.API.Controllers
     public class SchedulesController : ControllerBase
     {
         private readonly SmartHomeContext _context;
+        private readonly EventPublisher _eventPublisher;
 
-        public SchedulesController(SmartHomeContext context)
+        public SchedulesController(SmartHomeContext context, EventPublisher eventPublisher)
         {
             _context = context;
+            _eventPublisher = eventPublisher;
         }
 
         // GET: api/schedules/device/{deviceId}
@@ -61,6 +64,13 @@ namespace SmartHome.API.Controllers
             _context.DeviceSchedules.Add(schedule);
             await _context.SaveChangesAsync();
 
+            // Публикуем событие создания расписания
+            await _eventPublisher.PublishAsync("schedule.created", new
+            {
+                scheduleId = schedule.Id,
+                deviceId = schedule.DeviceId
+            });
+
             return CreatedAtAction(nameof(GetSchedules), new { deviceId = schedule.DeviceId }, new ScheduleDto
             {
                 Id = schedule.Id,
@@ -80,8 +90,17 @@ namespace SmartHome.API.Controllers
             var schedule = await _context.DeviceSchedules.FindAsync(id);
             if (schedule == null) return NotFound();
 
+            var scheduleId = schedule.Id;
+            var deviceId = schedule.DeviceId;
             _context.DeviceSchedules.Remove(schedule);
             await _context.SaveChangesAsync();
+
+            // Публикуем событие удаления расписания
+            await _eventPublisher.PublishAsync("schedule.deleted", new
+            {
+                scheduleId = scheduleId,
+                deviceId = deviceId
+            });
 
             return NoContent();
         }
@@ -95,6 +114,14 @@ namespace SmartHome.API.Controllers
 
             schedule.IsEnabled = !schedule.IsEnabled;
             await _context.SaveChangesAsync();
+
+            // Публикуем событие изменения статуса расписания
+            await _eventPublisher.PublishAsync("schedule.toggled", new
+            {
+                scheduleId = schedule.Id,
+                deviceId = schedule.DeviceId,
+                isEnabled = schedule.IsEnabled
+            });
 
             return Ok(new { isEnabled = schedule.IsEnabled });
         }
@@ -140,6 +167,13 @@ namespace SmartHome.API.Controllers
 
             await _context.SaveChangesAsync();
 
+            // Публикуем событие обновления расписания
+            await _eventPublisher.PublishAsync("schedule.updated", new
+            {
+                scheduleId = schedule.Id,
+                deviceId = schedule.DeviceId
+            });
+
             return Ok(new ScheduleDto
             {
                 Id = schedule.Id,
@@ -152,8 +186,5 @@ namespace SmartHome.API.Controllers
             });
         }
     }
-}
-
-
 }
 

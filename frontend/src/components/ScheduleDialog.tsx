@@ -522,9 +522,4 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
 };
 
 
-                </DialogContent>
-            </Dialog>
-        </Dialog>
-    );
-};
 

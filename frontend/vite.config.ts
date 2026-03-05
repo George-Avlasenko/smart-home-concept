@@ -10,6 +10,7 @@ export default defineConfig({
         target: 'http://localhost:5000', // Адрес нашего .NET бэкенда
         changeOrigin: true,
         secure: false,
+        ws: true, // Поддержка WebSocket для SSE
       }
     }
   }

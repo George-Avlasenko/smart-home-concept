@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.DTOs;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 
 namespace SmartHome.API.Controllers;
 
@@ -13,10 +14,12 @@ namespace SmartHome.API.Controllers;
 public class HousesController : ControllerBase
 {
     private readonly SmartHomeContext _context;
+    private readonly EventPublisher _eventPublisher;
 
-    public HousesController(SmartHomeContext context)
+    public HousesController(SmartHomeContext context, EventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     private int GetUserId()
@@ -183,6 +186,14 @@ public class HousesController : ControllerBase
             _context.Houses.Add(house);
             await _context.SaveChangesAsync();
 
+            // Публикуем событие создания дома
+            await _eventPublisher.PublishAsync("house.created", new
+            {
+                houseId = house.HouseId,
+                address = house.Address,
+                ownerId = house.OwnerId
+            });
+
             return CreatedAtAction(nameof(GetHouse), new { id = house.HouseId }, new HouseDto
             {
                 HouseId = house.HouseId,
@@ -209,8 +220,15 @@ public class HousesController : ControllerBase
             if (house == null) return NotFound();
             if (house.OwnerId != userId && userRole != "admin") return Forbid();
 
+            var houseId = house.HouseId;
             _context.Houses.Remove(house);
             await _context.SaveChangesAsync();
+
+            // Публикуем событие удаления дома
+            await _eventPublisher.PublishAsync("house.deleted", new
+            {
+                houseId = houseId
+            });
 
             return NoContent();
         }
@@ -246,6 +264,13 @@ public class HousesController : ControllerBase
 
             house.Address = dto.Address;
             await _context.SaveChangesAsync();
+
+            // Публикуем событие обновления дома
+            await _eventPublisher.PublishAsync("house.updated", new
+            {
+                houseId = house.HouseId,
+                address = house.Address
+            });
 
             return Ok(new HouseDto
             {

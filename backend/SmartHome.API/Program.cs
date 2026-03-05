@@ -48,6 +48,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
+builder.Services.AddSingleton<SmartHome.API.Services.EventPublisher>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<SmartHome.API.Services.EventPublisher>>();
+    return new SmartHome.API.Services.EventPublisher(logger);
+});
 builder.Services.AddHostedService<SmartHome.API.Services.ScheduleWorker>();
 builder.Services.AddHostedService<SmartHome.API.Services.SensorDataWorker>();
 
@@ -57,7 +62,8 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins("http://localhost:5173")
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials(); // Необходимо для SSE
     });
 });
 

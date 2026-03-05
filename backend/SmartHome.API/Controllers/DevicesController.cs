@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.DTOs;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 
 namespace SmartHome.API.Controllers;
 
@@ -15,10 +16,12 @@ namespace SmartHome.API.Controllers;
 public class DevicesController : ControllerBase
 {
     private readonly SmartHomeContext _context;
+    private readonly EventPublisher _eventPublisher;
 
-    public DevicesController(SmartHomeContext context)
+    public DevicesController(SmartHomeContext context, EventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     // GET: api/devices
@@ -181,6 +184,14 @@ public class DevicesController : ControllerBase
         device.MetaData = JsonSerializer.Serialize(currentSettings);
         await _context.SaveChangesAsync();
 
+        // Публикуем событие обновления настроек устройства
+        await _eventPublisher.PublishAsync("device.settings.updated", new
+        {
+            deviceId = device.DeviceId,
+            settings = currentSettings,
+            changedBy = userId
+        });
+
         return Ok(currentSettings);
     }
 
@@ -216,17 +227,51 @@ public class DevicesController : ControllerBase
              }
         }
 
+        // Парсим настройки из MetaData
+        Dictionary<string, object> settings = new();
+        try 
+        {
+            if (!string.IsNullOrEmpty(device.MetaData))
+            {
+                settings = JsonSerializer.Deserialize<Dictionary<string, object>>(device.MetaData) ?? new();
+            }
+        }
+        catch { /* Игнорируем ошибки парсинга JSON */ }
+
+        // Определяем права текущего пользователя
+        string permission = "viewer";
+        bool isFullAdmin = userRole == "admin" || 
+                           device.Room.House.OwnerId == userId || 
+                           await _context.HouseUsers.AnyAsync(hu => hu.HouseId == device.Room.HouseId && hu.UserId == userId && hu.Role == "admin");
+
+        if (isFullAdmin)
+        {
+            permission = "admin";
+        }
+        else
+        {
+            var userPerm = device.UserDevicePermissions.FirstOrDefault(p => p.UserId == userId);
+            if (userPerm != null)
+            {
+                permission = userPerm.PermissionLevel.ToString().ToLower();
+            }
+        }
+
         return new DeviceDto
         {
             DeviceId = device.DeviceId,
             RoomId = device.RoomId,
             RoomName = device.Room.RoomName,
+            HouseId = device.Room.HouseId,
+            HouseAddress = device.Room.House.Address,
             Name = device.Name,
             Manufacturer = device.Manufacturer,
             SerialNumber = device.SerialNumber,
             Type = device.Type,
             Ip = device.Ip != null ? device.Ip.ToString() : null,
-            Status = device.Status.ToString()
+            Status = device.Status.ToString(),
+            Settings = settings,
+            CurrentUserPermission = permission
         };
     }
 
@@ -320,6 +365,15 @@ public class DevicesController : ControllerBase
             _context.UserDevicePermissions.Add(permission);
             await _context.SaveChangesAsync();
 
+            // Публикуем событие создания устройства
+            await _eventPublisher.PublishAsync("device.created", new
+            {
+                deviceId = device.DeviceId,
+                roomId = device.RoomId,
+                name = device.Name,
+                type = device.Type
+            });
+
             return CreatedAtAction(nameof(GetDevice), new { id = device.DeviceId }, new DeviceDto
             {
                 DeviceId = device.DeviceId,
@@ -394,6 +448,16 @@ public class DevicesController : ControllerBase
             };
             _context.DeviceStatusHistories.Add(history);
         await _context.SaveChangesAsync();
+
+            // Публикуем событие изменения статуса устройства
+            Console.WriteLine($"[DevicesController] Publishing device.status.updated event for device {device.DeviceId}, status: {newStatus}");
+            await _eventPublisher.PublishAsync("device.status.updated", new
+            {
+                deviceId = device.DeviceId,
+                status = newStatus.ToString(),
+                changedBy = userId
+            });
+            Console.WriteLine($"[DevicesController] Event published successfully");
         }
         else
         {
@@ -429,8 +493,15 @@ public class DevicesController : ControllerBase
             return StatusCode(403, "Только владелец или совладелец может удалять устройства.");
         }
 
+        var deviceId = device.DeviceId;
         _context.Devices.Remove(device);
         await _context.SaveChangesAsync();
+
+        // Публикуем событие удаления устройства
+        await _eventPublisher.PublishAsync("device.deleted", new
+        {
+            deviceId = deviceId
+        });
 
         return NoContent();
     }
@@ -502,6 +573,18 @@ public class DevicesController : ControllerBase
         }
 
         await _context.SaveChangesAsync();
+
+        // Публикуем событие обновления устройства
+        await _eventPublisher.PublishAsync("device.updated", new
+        {
+            deviceId = device.DeviceId,
+            name = device.Name,
+            type = device.Type,
+            manufacturer = device.Manufacturer,
+            serialNumber = device.SerialNumber,
+            ip = device.Ip?.ToString()
+        });
+
         return Ok(new DeviceDto
         {
             DeviceId = device.DeviceId,

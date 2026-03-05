@@ -5,6 +5,8 @@ import { api } from '../api/client';
 import { DeviceStatus } from '../types';
 import type { Device } from '../types';
 import { DeviceCard } from '../components/DeviceCard';
+import { useSSE } from '../hooks/useSSE';
+import { useAuth } from '../context/AuthContext';
 
 // Группировка устройств
 interface GroupedDevices {
@@ -20,6 +22,7 @@ interface GroupedDevices {
 }
 
 export const Dashboard = () => {
+  const { user } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,16 +42,78 @@ export const Dashboard = () => {
     fetchDevices();
   }, []);
 
+  // Подписка на события через SSE
+  const { isConnected } = useSSE({
+    onMessage: async (event) => {
+      console.log('[Dashboard] SSE event received:', event);
+      
+      switch (event.type) {
+        case 'device.status.updated':
+          console.log('[Dashboard] Device status updated:', event.data);
+          // Обновляем только статус из события
+          setDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, status: event.data.status } 
+              : d
+          ));
+          break;
+        
+        case 'device.settings.updated':
+          console.log('[Dashboard] Device settings updated:', event.data);
+          // Обновляем только settings из события
+          setDevices(prev => prev.map(d => 
+            d.deviceId === event.data.deviceId 
+              ? { ...d, settings: { ...d.settings, ...event.data.settings } } 
+              : d
+          ));
+          break;
+        
+        case 'device.created':
+        case 'device.updated':
+          // Перезагружаем список устройств при создании/обновлении
+          fetchDevices();
+          break;
+        
+        case 'device.deleted':
+          setDevices(prev => prev.filter(d => d.deviceId !== event.data.deviceId));
+          break;
+        
+        case 'room.created':
+        case 'room.updated':
+        case 'room.deleted':
+        case 'house.created':
+        case 'house.updated':
+        case 'house.deleted':
+          // Перезагружаем список устройств при изменении структуры домов/комнат
+          fetchDevices();
+          break;
+        
+        default:
+          // Игнорируем неизвестные события
+          break;
+      }
+    },
+    onError: (error) => {
+      console.error('SSE error:', error);
+    },
+    onOpen: () => {
+      console.log('SSE connection opened');
+    },
+    onClose: () => {
+      console.log('SSE connection closed');
+    },
+  });
+
+  // Показываем статус подключения SSE (для отладки)
+  useEffect(() => {
+    console.log('[Dashboard] SSE connection status:', isConnected ? 'CONNECTED' : 'DISCONNECTED');
+  }, [isConnected]);
+
   const handleToggleDevice = async (id: number, newStatus: DeviceStatus) => {
     try {
-      // Оптимистичное обновление интерфейса
-      setDevices(prev => prev.map(d => 
-        d.deviceId === id ? { ...d, status: newStatus } : d
-      ));
-
       await api.put(`/devices/${id}/status`, { status: newStatus });
+      // Обновление придет через SSE событие
     } catch (err) {
-      // Если ошибка - откатываем обратно
       setError('Ошибка при изменении статуса');
       fetchDevices();
     }
@@ -56,10 +121,8 @@ export const Dashboard = () => {
 
   const handleSettingsChange = async (id: number, newSettings: Record<string, any>) => {
       try {
-          setDevices(prev => prev.map(d => 
-            d.deviceId === id ? { ...d, settings: { ...d.settings, ...newSettings } } : d
-          ));
           await api.put(`/devices/${id}/settings`, { settings: newSettings });
+          // Обновление придет через SSE событие
       } catch (err) {
           console.error(err);
           fetchDevices();

@@ -36,3 +36,21 @@ ENTRYPOINT ["dotnet", "SmartHome.API.dll"]
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
