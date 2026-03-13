@@ -11,6 +11,7 @@ export interface SystemUser {
   role: string;
   fullName?: string;
   isBlocked: boolean;
+  isActive?: boolean; // сейчас в подписке SSE (активен в приложении)
   createdAt?: string;
 }
 

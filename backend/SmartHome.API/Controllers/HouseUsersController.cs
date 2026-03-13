@@ -161,36 +161,23 @@ public class HouseUsersController : ControllerBase
     public async Task<IActionResult> RemoveHouseUser(int houseId, int targetUserId)
     {
         var userId = GetUserId();
-        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
-
         var house = await _context.Houses.FindAsync(houseId);
         if (house == null) return NotFound();
 
-        // Админ может удалять кого угодно (кроме владельца, если это не сам админ)
-        bool isAdmin = userRole == "admin";
-        
         // Если пытаются удалить владельца (или владелец удаляет себя)
         if (targetUserId == house.OwnerId)
         {
-             if (userId == house.OwnerId)
-             {
-                 return BadRequest("Владелец не может покинуть дом. Сначала передайте права владения другому жильцу.");
-             }
-             if (!isAdmin)
-             {
-                 return BadRequest("Нельзя удалить владельца дома.");
-             }
+            if (userId == house.OwnerId)
+                return BadRequest("Владелец не может покинуть дом. Сначала передайте права владения другому жильцу.");
+            return BadRequest("Нельзя удалить владельца дома.");
         }
 
         var isOwner = house.OwnerId == userId;
         var isCoOwner = await _context.HouseUsers
             .AnyAsync(hu => hu.HouseId == houseId && hu.UserId == userId && hu.Role == "admin");
 
-        // Админ может удалять кого угодно.
-        // Владелец может удалять кого угодно. 
-        // Совладелец может удалять (кроме владельца). 
-        // Жилец может удалить себя (покинуть дом).
-        if (!isAdmin && !isOwner && !isCoOwner && userId != targetUserId)
+        // Владелец/совладелец дома могут удалять жильцов; жилец может удалить только себя (покинуть дом). Глобальный админ не может в чужих домах.
+        if (!isOwner && !isCoOwner && userId != targetUserId)
         {
             return Forbid();
         }
@@ -295,7 +282,8 @@ public class HouseUsersController : ControllerBase
         var house = await _context.Houses.FindAsync(houseId);
         if (house == null) return NotFound();
 
-        if (house.OwnerId != userId)
+        // Владелец дома или глобальный админ (только передача владения)
+        if (house.OwnerId != userId && !User.IsInRole("admin"))
         {
             return Forbid("Только текущий владелец может передать права владения");
         }
@@ -307,22 +295,33 @@ public class HouseUsersController : ControllerBase
 
         if (newOwnerUser == null) return BadRequest("Новый владелец должен быть жильцом дома");
 
+        var previousOwnerId = house.OwnerId;
+        if (!previousOwnerId.HasValue)
+        {
+            return BadRequest("Некорректный владелец дома");
+        }
+
+        int oldOwnerId = previousOwnerId.Value;
+        if (newOwnerId == oldOwnerId)
+            return BadRequest("Новый владелец не может совпадать с текущим владельцем");
+
+        // Только текущего владельца делаем совладельцем; вызывающий (userId) в дом не добавляем
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
             // 1. Назначаем нового владельца дому
             house.OwnerId = newOwnerId;
 
-            // 2. Старого владельца делаем совладельцем (admin)
+            // 2. Предыдущего владельца (oldOwnerId) делаем совладельцем. Никогда не добавляем userId (вызывающего).
             var oldOwnerLink = await _context.HouseUsers
-                .FirstOrDefaultAsync(hu => hu.HouseId == houseId && hu.UserId == userId);
+                .FirstOrDefaultAsync(hu => hu.HouseId == houseId && hu.UserId == oldOwnerId);
 
             if (oldOwnerLink == null)
             {
                 _context.HouseUsers.Add(new HouseUser
                 {
                     HouseId = houseId,
-                    UserId = userId,
+                    UserId = oldOwnerId,
                     Role = "admin",
                     JoinedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
                 });
@@ -332,17 +331,16 @@ public class HouseUsersController : ControllerBase
                 oldOwnerLink.Role = "admin";
             }
 
-            // 3. Нового владельца удаляем из HouseUsers
+            // 3. Удаляем из HouseUsers только запись нового владельца (он теперь в House.OwnerId). Старого владельца не удаляем.
             _context.HouseUsers.Remove(newOwnerUser);
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            // Публикуем событие передачи прав владения
             await _eventPublisher.PublishAsync("house.ownership.transferred", new
             {
                 houseId = houseId,
-                oldOwnerId = userId,
+                oldOwnerId = oldOwnerId,
                 newOwnerId = newOwnerId
             });
 

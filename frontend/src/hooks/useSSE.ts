@@ -11,12 +11,15 @@ interface UseSSEOptions {
   onError?: (error: Event) => void;
   onOpen?: () => void;
   onClose?: () => void;
+  /** Подключаться только когда true. Сначала загружаем данные, потом садимся на подписку. */
+  enabled?: boolean;
 }
 
 export const useSSE = (options: UseSSEOptions = {}) => {
+  const { enabled = true } = options;
   const [isConnected, setIsConnected] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
   const reconnectDelay = 3000;
@@ -29,6 +32,7 @@ export const useSSE = (options: UseSSEOptions = {}) => {
   }, [options]);
 
   const connect = useCallback(() => {
+    if (!enabled) return;
     if (isConnectingRef.current) {
       return; // Уже подключаемся
     }
@@ -157,9 +161,13 @@ export const useSSE = (options: UseSSEOptions = {}) => {
           console.error('[SSE] Max reconnect attempts reached');
         }
       });
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setIsConnected(false);
+      return;
+    }
     connect();
 
     return () => {
@@ -172,7 +180,7 @@ export const useSSE = (options: UseSSEOptions = {}) => {
       setIsConnected(false);
       isConnectingRef.current = false;
     };
-  }, [connect]);
+  }, [connect, enabled]);
 
   return { isConnected };
 };

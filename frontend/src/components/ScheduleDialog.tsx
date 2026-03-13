@@ -50,21 +50,22 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
         return 'on';
     });
     const [editDays, setEditDays] = useState<number[]>([]);
+    const [accessDenied, setAccessDenied] = useState(false);
 
     useEffect(() => {
         if (open && deviceId) {
+            setAccessDenied(false);
             fetchSchedules();
-            // Сбрасываем форму при открытии
             setNewTime('08:00');
             setNewAction(getDefaultAction());
-            setSelectedDays([]); // По умолчанию пусто - однократное расписание
+            setSelectedDays([]);
         }
     }, [open, deviceId, deviceType]);
 
     const fetchSchedules = async () => {
         try {
+            setAccessDenied(false);
             const res = await api.get<Schedule[]>(`/schedules/device/${deviceId}`);
-            // Сортируем по времени
             const sorted = [...res.data].sort((a, b) => {
                 const timeA = a.time.split(':').map(Number);
                 const timeB = b.time.split(':').map(Number);
@@ -73,8 +74,9 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                 return minutesA - minutesB;
             });
             setSchedules(sorted);
-        } catch (err) {
-            console.error(err);
+        } catch (err: any) {
+            if (err.response?.status === 403) setAccessDenied(true);
+            else console.error(err);
         }
     };
 
@@ -231,11 +233,33 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
         return sorted.map(d => DAYS[d === 0 ? 6 : d - 1]).join(', ');
     };
 
+    const accessDeniedMessage = 'Расписание устройства видят только владельцы и жильцы этого дома. Так мы сохраняем вашу приватность и комфорт.';
+
     return (
-        <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" sx={{ zIndex: 1300 }}>
+        <Dialog
+            open={open}
+            onClose={onClose}
+            fullWidth
+            maxWidth="sm"
+            sx={{
+                zIndex: 1300,
+                '& .MuiDialog-paper': {
+                    backdropFilter: 'blur(28px)',
+                    WebkitBackdropFilter: 'blur(28px)',
+                },
+            }}
+        >
             <DialogTitle>Расписание: {deviceName}</DialogTitle>
             <DialogContent>
-                <Box mb={3} mt={1} p={2} bgcolor="#f5f5f5" borderRadius={2}>
+                {accessDenied ? (
+                    <Box sx={{ py: 4, px: 2, textAlign: 'center' }}>
+                        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', lineHeight: 1.6, maxWidth: 360, mx: 'auto' }}>
+                            {accessDeniedMessage}
+                        </Typography>
+                    </Box>
+                ) : (
+                <>
+                <Box mb={3} mt={1} p={2} bgcolor="background.paper" borderRadius={2} border={1} borderColor="divider">
                     <Typography variant="subtitle2" gutterBottom>Добавить новое правило</Typography>
                     <Box display="flex" gap={2} mb={2}>
                         <TextField
@@ -334,22 +358,19 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                             <Typography fontWeight="bold">{s.time}</Typography>
                                             <Chip 
                                                 label={getActionLabel(s.action || s.actionOn)} 
-                                                color={(s.action || s.actionOn === true) ? "success" : "default"} 
+                                                color={(s.action || s.actionOn === true) ? "success" : "default"}
                                                 size="small" 
                                                 sx={{ height: 20 }} 
                                             />
                                         </Box>
                                     }
-                                    secondary={
-                                        <Box mt={0.5}>
-                                            {getSortedDaysString(s.daysOfWeek)}
-                                        </Box>
-                                    }
-                                    secondaryTypographyProps={{ component: 'div' }}
+                                    secondary={getSortedDaysString(s.daysOfWeek)}
                                 />
                         </ListItem>
                     ))}
                 </List>
+                </>
+                )}
             </DialogContent>
             <DialogActions>
                 <Button onClick={onClose}>Закрыть</Button>
@@ -361,27 +382,10 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                 onClose={() => setEditingSchedule(null)} 
                 maxWidth="sm"
                 hideBackdrop={false}
-
                 disableRestoreFocus={true}
-                sx={{ 
-                    zIndex: 1400,
-                    '& .MuiDialog-paper': {
-                        position: 'relative',
-                        zIndex: 1400,
-                        borderRadius: 2,
-                        minWidth: '450px',
-                        maxWidth: '550px'
-                    }
-                }}
+                sx={{ zIndex: 1400, '& .MuiDialog-paper': { position: 'relative', zIndex: 1400, borderRadius: 2, minWidth: 450, maxWidth: 550 } }}
             >
-                <DialogTitle sx={{ 
-                    pb: 1,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1
-                }}>
+                <DialogTitle sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
                     <EditIcon color="primary" />
                     Редактировать расписание
                 </DialogTitle>
@@ -467,13 +471,7 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                     gap={1} 
                                     flexWrap="wrap"
                                     p={1.5}
-                                    sx={{
-                                        bgcolor: 'grey.50',
-                                        borderRadius: 2,
-                                        border: '1px solid',
-                                        borderColor: 'divider',
-                                        width: 'fit-content'
-                                    }}
+                                    sx={{ bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', width: 'fit-content' }}
                                 >
                                     {dayIndices.map((idx) => (
                                         <Chip 
@@ -490,13 +488,7 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                             variant={editDays.includes(idx) ? "filled" : "outlined"}
                                             size="medium"
                                             clickable
-                                            sx={{
-                                                fontWeight: editDays.includes(idx) ? 600 : 400,
-                                                transition: 'all 0.2s',
-                                                '&:hover': {
-                                                    transform: 'scale(1.05)'
-                                                }
-                                            }}
+                                            sx={{ fontWeight: editDays.includes(idx) ? 600 : 400, transition: 'all 0.2s', '&:hover': { transform: 'scale(1.05)' } }}
                                         />
                                     ))}
                                 </Box>

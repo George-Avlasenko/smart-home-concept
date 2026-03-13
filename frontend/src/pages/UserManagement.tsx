@@ -20,9 +20,11 @@ import {
   Switch,
   FormControlLabel
 } from '@mui/material';
+import { Toast } from '../components/Toast';
 import DeleteIcon from '@mui/icons-material/Delete';
 import BlockIcon from '@mui/icons-material/Block';
 import { api } from '../api/client';
+import { GlassPage } from '../components/GlassPage';
 import { useAuth } from '../context/AuthContext';
 import type { SystemUser } from '../types';
 
@@ -82,29 +84,24 @@ export const UserManagement = () => {
 
   if (user?.role !== 'admin') {
     return (
-      <Box sx={{ p: 3 }}>
+      <GlassPage>
         <Alert severity="error">Доступ запрещен. Только администратор может просматривать эту страницу.</Alert>
-      </Box>
+      </GlassPage>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <GlassPage>
+      <Typography variant="h4" gutterBottom sx={{ color: '#fff', mb: 2 }}>
         Управление пользователями
       </Typography>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage('')}>
-          {successMessage}
-        </Alert>
-      )}
+      <Toast
+        open={!!error || !!successMessage}
+        message={error || successMessage || ''}
+        severity={error ? 'error' : 'success'}
+        onClose={() => { setError(''); setSuccessMessage(''); }}
+      />
 
       {loading ? (
         <Typography>Загрузка...</Typography>
@@ -138,11 +135,9 @@ export const UserManagement = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={u.isBlocked ? 'Заблокирован' : 'Активен'}
-                      color={u.isBlocked ? 'error' : 'success'}
-                      size="small"
-                    />
+                    <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500 }}>
+                      {!!u.isBlocked ? 'Заблокирован' : (u.isActive ? 'Активен' : 'Неактивен')}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ru-RU') : '-'}
@@ -152,8 +147,8 @@ export const UserManagement = () => {
                       <FormControlLabel
                         control={
                           <Switch
-                            checked={!u.isBlocked}
-                            onChange={() => handleToggleBlock(u.userId, u.isBlocked)}
+                            checked={!Boolean(u.isBlocked)}
+                            onChange={() => handleToggleBlock(u.userId, !!u.isBlocked)}
                             disabled={u.userId === user?.userId || u.role === 'admin'}
                             size="small"
                           />
@@ -192,7 +187,7 @@ export const UserManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </GlassPage>
   );
 };
 

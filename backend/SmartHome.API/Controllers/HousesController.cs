@@ -41,20 +41,28 @@ public class HousesController : ControllerBase
             var userId = GetUserId();
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
-            // Если админ - возвращаем все дома
+            // Системный админ видит все дома, но роль по каждому дому — реальная (владелец, совладелец или нет доступа)
             if (userRole == "admin")
             {
-                var allHouses = await _context.Houses
-                .Select(h => new HouseDto
+                var allHouses = await _context.Houses.ToListAsync();
+                var houseIds = allHouses.Select(h => h.HouseId).ToList();
+                var myMemberships = await _context.HouseUsers
+                    .Where(hu => houseIds.Contains(hu.HouseId) && hu.UserId == userId)
+                    .ToDictionaryAsync(hu => hu.HouseId, hu => hu.Role);
+
+                var adminDtos = allHouses.Select(h =>
                 {
-                    HouseId = h.HouseId,
-                    Address = h.Address,
+                    string? role = h.OwnerId == userId ? "owner" : (myMemberships.TryGetValue(h.HouseId, out var r) ? r : null);
+                    return new HouseDto
+                    {
+                        HouseId = h.HouseId,
+                        Address = h.Address,
                         CreatedAt = h.CreatedAt,
                         OwnerId = h.OwnerId,
-                        CurrentUserRole = "admin" // Админ видит все дома с правами админа
-                    })
-                    .ToListAsync();
-                return Ok(allHouses);
+                        CurrentUserRole = role
+                    };
+                }).ToList();
+                return Ok(adminDtos);
             }
 
             // Получаем дома, где пользователь владелец

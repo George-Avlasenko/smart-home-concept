@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 
 namespace SmartHome.API.Controllers;
 
@@ -12,10 +13,12 @@ namespace SmartHome.API.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly SmartHomeContext _context;
+    private readonly EventPublisher _eventPublisher;
 
-    public UsersController(SmartHomeContext context)
+    public UsersController(SmartHomeContext context, EventPublisher eventPublisher)
     {
         _context = context;
+        _eventPublisher = eventPublisher;
     }
 
     private int GetUserId()
@@ -41,6 +44,8 @@ public class UsersController : ControllerBase
             return Forbid("Только администратор может просматривать список пользователей");
         }
 
+        var activeUserIds = _eventPublisher.GetActiveUserIds();
+
         var users = await _context.Users
             .Select(u => new
             {
@@ -54,7 +59,19 @@ public class UsersController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(users);
+        var result = users.Select(u => new
+        {
+            u.UserId,
+            u.Username,
+            u.Email,
+            u.Role,
+            u.FullName,
+            u.IsBlocked,
+            u.CreatedAt,
+            IsActive = activeUserIds.Contains(u.UserId)
+        }).ToList();
+
+        return Ok(result);
     }
 
     // DELETE: api/users/5

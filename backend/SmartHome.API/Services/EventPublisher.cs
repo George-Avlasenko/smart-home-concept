@@ -131,6 +131,26 @@ public class EventPublisher
     {
         return _subscribers.Values.Sum(writers => writers.Count);
     }
+
+    /// <summary>
+    /// Возвращает ID пользователей, у которых сейчас открыта подписка SSE (активны в приложении).
+    /// </summary>
+    public IReadOnlySet<int> GetActiveUserIds()
+    {
+        var ids = new HashSet<int>();
+        foreach (var key in _subscribers.Keys)
+        {
+            if (int.TryParse(key, out var id) && _subscribers.TryGetValue(key, out var writers))
+            {
+                lock (writers)
+                {
+                    if (writers.Count > 0)
+                        ids.Add(id);
+                }
+            }
+        }
+        return ids;
+    }
 }
 
 

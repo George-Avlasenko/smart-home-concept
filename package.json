@@ -1,0 +1,9 @@
+{
+  "name": "kp",
+  "private": true,
+  "scripts": {
+    "frontend": "docker-compose up -d --build frontend",
+    "up": "docker-compose up -d --build",
+    "down": "docker-compose down"
+  }
+}

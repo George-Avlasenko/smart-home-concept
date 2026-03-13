@@ -79,7 +79,10 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
   const [statistics, setStatistics] = useState<DeviceStatistics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [days, setDays] = useState(1);
+
+  const accessDeniedMessage = 'Статистику устройства видят только владельцы и жильцы этого дома. Так мы сохраняем вашу приватность и комфорт.';
 
   useEffect(() => {
     if (open && deviceId) {
@@ -90,12 +93,20 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
   const fetchStatistics = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(false);
     try {
       const response = await api.get<DeviceStatistics>(`/devicestatistics/device/${deviceId}?days=${days}`);
       setStatistics(response.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching statistics:', err);
-      setError('Не удалось загрузить статистику');
+      if (err.response?.status === 403) {
+        setAccessDenied(true);
+        setError(null);
+      } else {
+        const d = err.response?.data;
+        const msg = (typeof d === 'string' ? d : null) ?? d?.detail ?? d?.message ?? d?.title;
+        setError(msg || 'Не удалось загрузить статистику');
+      }
     } finally {
       setLoading(false);
     }
@@ -131,17 +142,45 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      sx={{
+        '& .MuiDialog-paper': {
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+        },
+        '& .MuiTableHead .MuiTableCell-root': {
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(12px)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.15)',
+          color: 'rgba(255, 255, 255, 0.9)',
+          fontWeight: 600,
+        },
+        '& .MuiTableContainer-root': {
+          background: 'transparent',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        },
+      }}
+    >
       <DialogTitle>Статистика: {deviceName}</DialogTitle>
       <DialogContent>
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
-            <CircularProgress />
-          </div>
+          <Box display="flex" justifyContent="center" p={3}>
+            <CircularProgress color="primary" />
+          </Box>
+        ) : accessDenied ? (
+          <Box sx={{ py: 4, px: 2, textAlign: 'center' }}>
+            <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', lineHeight: 1.6, maxWidth: 360, mx: 'auto' }}>
+              {accessDeniedMessage}
+            </Typography>
+          </Box>
         ) : error ? (
           <Typography color="error">{error}</Typography>
         ) : !statistics ? (
-          <Typography>Нет данных для отображения</Typography>
+          <Typography color="text.secondary">Нет данных для отображения</Typography>
         ) : (
           <Box>
             <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
@@ -161,7 +200,7 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
             </Box>
 
             <Grid container spacing={2} mb={3}>
-              <Grid size={{ xs: 6, md: 3 }}>
+              <Grid item xs={6} md={3}>
                 <Card>
                   <CardContent>
                     <Typography variant="caption" color="text.secondary">Всего переключений</Typography>
@@ -169,7 +208,7 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
                   </CardContent>
                 </Card>
               </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
+              <Grid item xs={6} md={3}>
                 <Card>
                   <CardContent>
                     <Typography variant="caption" color="text.secondary">Время работы</Typography>
@@ -179,7 +218,7 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
                   </CardContent>
                 </Card>
               </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
+              <Grid item xs={6} md={3}>
                 <Card>
                   <CardContent>
                     <Typography variant="caption" color="text.secondary">Время простоя</Typography>
@@ -189,7 +228,7 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
                   </CardContent>
                 </Card>
               </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
+              <Grid item xs={6} md={3}>
                 <Card>
                   <CardContent>
                     <Typography variant="caption" color="text.secondary">Текущая сессия</Typography>
@@ -203,15 +242,15 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
               </Grid>
             </Grid>
 
-            <TableContainer component={Paper} style={{ maxHeight: 400 }}>
+            <TableContainer component={Paper} sx={{ maxHeight: 400, bgcolor: 'transparent' }}>
               <Table stickyHeader size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Дата/Время</TableCell>
-                    <TableCell>Статус</TableCell>
-                    <TableCell>Длительность</TableCell>
-                    <TableCell>Причина</TableCell>
-                    <TableCell>Пользователь</TableCell>
+                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Дата/Время</TableCell>
+                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Статус</TableCell>
+                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Длительность</TableCell>
+                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Причина</TableCell>
+                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Пользователь</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

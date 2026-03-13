@@ -22,10 +22,30 @@ namespace SmartHome.API.Controllers
             _eventPublisher = eventPublisher;
         }
 
+        private int GetUserId()
+        {
+            var claim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+            if (claim == null) throw new UnauthorizedAccessException("Missing userId");
+            return int.Parse(claim.Value);
+        }
+
         // GET: api/schedules/device/{deviceId}
         [HttpGet("device/{deviceId}")]
         public async Task<ActionResult<IEnumerable<ScheduleDto>>> GetSchedules(int deviceId)
         {
+            var userId = GetUserId();
+            var device = await _context.Devices
+                .Include(d => d.Room)
+                .ThenInclude(r => r.House)
+                .FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+            if (device == null) return NotFound();
+
+            var isOwner = device.Room.House.OwnerId == userId;
+            var isHouseAdmin = await _context.HouseUsers
+                .AnyAsync(hu => hu.HouseId == device.Room.HouseId && hu.UserId == userId && hu.Role == "admin");
+            if (!isOwner && !isHouseAdmin)
+                return StatusCode(403, "Доступ к расписанию разрешён только владельцам и пользователям дома.");
+
             var schedules = await _context.DeviceSchedules
                 .Where(s => s.DeviceId == deviceId)
                 .ToListAsync();

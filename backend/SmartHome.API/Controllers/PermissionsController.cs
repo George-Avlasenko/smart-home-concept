@@ -45,8 +45,8 @@ public class PermissionsController : ControllerBase
 
         if (device == null) return NotFound();
 
-        // Просмотр прав доступен владельцу дома или админу
-        if (device.Room.House.OwnerId != userId && !User.IsInRole("admin"))
+        // Просмотр прав только у владельца дома
+        if (device.Room.House.OwnerId != userId)
         {
             return Forbid();
         }
@@ -77,8 +77,8 @@ public class PermissionsController : ControllerBase
 
         if (device == null) return NotFound("Устройство не найдено");
 
-        // Только владелец дома может выдавать права
-        if (device.Room.House.OwnerId != userId && !User.IsInRole("admin"))
+        // Только владелец дома может выдавать права (глобальный админ не может в чужих домах)
+        if (device.Room.House.OwnerId != userId)
         {
             return Forbid("Только владелец может управлять правами");
         }
@@ -123,6 +123,29 @@ public class PermissionsController : ControllerBase
         return Ok();
     }
 
+    // DELETE: api/permissions/user/5/device/10 — забрать доступ (нет)
+    [HttpDelete("user/{targetUserId}/device/{deviceId}")]
+    public async Task<IActionResult> RemovePermissionByUserAndDevice(int targetUserId, int deviceId)
+    {
+        var userId = GetUserId();
+        var device = await _context.Devices
+            .Include(d => d.Room)
+            .ThenInclude(r => r.House)
+            .FirstOrDefaultAsync(d => d.DeviceId == deviceId);
+        if (device == null) return NotFound();
+        if (device.Room.House.OwnerId != userId)
+            return Forbid("Только владелец может управлять правами");
+
+        var permission = await _context.UserDevicePermissions
+            .FirstOrDefaultAsync(p => p.UserId == targetUserId && p.DeviceId == deviceId);
+        if (permission == null) return NoContent();
+
+        _context.UserDevicePermissions.Remove(permission);
+        await _context.SaveChangesAsync();
+        await _eventPublisher.PublishAsync("permission.deleted", new { deviceId, userId = targetUserId });
+        return NoContent();
+    }
+
     // DELETE: api/permissions/5
     [HttpDelete("{permissionId}")]
     public async Task<IActionResult> RemovePermission(int permissionId)
@@ -136,7 +159,7 @@ public class PermissionsController : ControllerBase
 
         if (permission == null) return NotFound();
 
-        if (permission.Device.Room.House.OwnerId != userId && !User.IsInRole("admin"))
+        if (permission.Device.Room.House.OwnerId != userId)
         {
             return Forbid();
         }

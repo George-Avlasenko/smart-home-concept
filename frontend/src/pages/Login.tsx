@@ -56,6 +56,21 @@ export const Login = () => {
     }
   };
 
+  const inputSx = {
+    '& .MuiOutlinedInput-root': {
+      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+      color: '#fff',
+      '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+      '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.35)' },
+'&.Mui-focused fieldset': { borderColor: '#F08B5C', borderWidth: 2 },
+    '&.Mui-error fieldset': { borderColor: '#FF6B6B' },
+  },
+  '& .MuiInputLabel-outlined': { color: 'rgba(255, 255, 255, 0.7)' },
+  '& .MuiInputLabel-outlined.Mui-focused': { color: '#F08B5C' },
+    '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.6)' },
+    '& .MuiFormHelperText-root.Mui-error': { color: '#FF8A8A' },
+  };
+
   return (
     <Container component="main" maxWidth="xs">
       <Box
@@ -66,12 +81,26 @@ export const Login = () => {
           alignItems: 'center',
         }}
       >
-        <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
-          <Typography component="h1" variant="h5" align="center" mb={2}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 4,
+            width: '100%',
+            background: 'rgba(255, 255, 255, 0.08)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: 2,
+          }}
+        >
+          <Typography component="h1" variant="h5" align="center" mb={2} sx={{ color: '#fff' }}>
             Умный Дом Вход
           </Typography>
           
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, bgcolor: 'rgba(255, 107, 107, 0.2)', color: '#fff' }}>
+              {error}
+            </Alert>
+          )}
 
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <TextField
@@ -91,6 +120,7 @@ export const Login = () => {
               error={touched.username && !isUsernameValid}
               helperText={touched.username && !isUsernameValid ? "Введите имя пользователя" : `${username.length}/30`}
               inputProps={{ maxLength: 30 }}
+              sx={inputSx}
             />
             <TextField
               margin="normal"
@@ -109,12 +139,13 @@ export const Login = () => {
               error={touched.password && !isPasswordValid}
               helperText={touched.password && !isPasswordValid ? "Введите пароль" : `${password.length}/50`}
               inputProps={{ maxLength: 50 }}
+              sx={inputSx}
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{ mt: 3, mb: 2, bgcolor: '#F08B5C', color: '#fff', '&:hover': { bgcolor: '#D97A45' } }}
               disabled={!isUsernameValid || !isPasswordValid}
             >
               Войти
@@ -123,6 +154,7 @@ export const Login = () => {
               fullWidth
               variant="text"
               onClick={() => navigate('/register')}
+              sx={{ color: 'rgba(255, 255, 255, 0.8)' }}
             >
               Нет аккаунта? Регистрация
             </Button>

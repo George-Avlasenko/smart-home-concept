@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Typography, Box, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Alert, Select, MenuItem, FormControl, InputLabel, Snackbar, Accordion, AccordionSummary, AccordionDetails, Chip, List, ListItem, ListItemText, Tooltip, Checkbox, FormControlLabel, Switch, FormGroup } from '@mui/material';
+import { Typography, Box, Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Select, MenuItem, FormControl, InputLabel, Accordion, AccordionSummary, AccordionDetails, Chip, List, ListItem, ListItemText, Tooltip, Checkbox, FormControlLabel, Switch, FormGroup } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -14,6 +14,8 @@ import RouterIcon from '@mui/icons-material/Router';
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { ScheduleDialog } from '../components/ScheduleDialog';
+import { GlassPage } from '../components/GlassPage';
+import { Toast } from '../components/Toast';
 import { api } from '../api/client';
 import type { House, Room, HouseUser, UserDevicePermission, Device, DeviceSchedule } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -273,7 +275,7 @@ const InlineEdit = ({ initialValue, onSave, onCancel, maxLength = 50 }: { initia
                 <Box 
                     component="span" 
                     onClick={handleSave}
-                    sx={{ cursor: 'pointer', p: 1, color: 'primary.main', display: 'inline-flex' }}
+                    sx={{ cursor: 'pointer', p: 1, color: '#F08B5C', display: 'inline-flex' }}
                 >
                     <CheckIcon fontSize="small" />
                 </Box>
@@ -283,7 +285,7 @@ const InlineEdit = ({ initialValue, onSave, onCancel, maxLength = 50 }: { initia
                         setError('');
                         onCancel();
                     }}
-                    sx={{ cursor: 'pointer', p: 1, color: 'text.secondary', display: 'inline-flex' }}
+                    sx={{ cursor: 'pointer', p: 1, color: 'rgba(255,255,255,0.7)', display: 'inline-flex' }}
                 >
                     <CloseIcon fontSize="small" />
                 </Box>
@@ -308,6 +310,7 @@ export const HouseManagement = () => {
   const [openResidentsDialog, setOpenResidentsDialog] = useState(false);
   const [openPermissionsDialog, setOpenPermissionsDialog] = useState(false);
   const [openScheduleDialog, setOpenScheduleDialog] = useState(false);
+  const [transferToNewOwnerDialog, setTransferToNewOwnerDialog] = useState(false);
   
   const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
@@ -376,14 +379,19 @@ export const HouseManagement = () => {
 
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   useEffect(() => {
-    fetchHouses();
-    fetchDevices();
+    let cancelled = false;
+    Promise.all([fetchHouses(), fetchDevices()]).finally(() => {
+      if (!cancelled) setInitialLoadDone(true);
+    });
+    return () => { cancelled = true; };
   }, []);
 
-  // Подписка на события через SSE
+  // Сначала загружаем данные, потом подключаемся к SSE
   useSSE({
+    enabled: initialLoadDone,
     onMessage: async (event) => {
       console.log('SSE event received in HouseManagement:', event);
       
@@ -789,13 +797,14 @@ export const HouseManagement = () => {
       } catch (err: any) { setError('Ошибка обновления роли'); }
   };
 
-  const handleTransferOwnership = async (newOwnerId: number) => {
+  const handleTransferOwnership = async (newOwnerId: number, skipConfirm?: boolean) => {
       if (!selectedHouseId) return;
-      if (!window.confirm('Вы уверены? Вы потеряете полные права на дом и станете совладельцем.')) return;
+      if (!skipConfirm && !window.confirm('Вы уверены? Вы потеряете полные права на дом и станете совладельцем.')) return;
       try {
           await api.post(`/houses/${selectedHouseId}/users/transfer/${newOwnerId}`);
           setOpenResidentsDialog(false);
-          fetchHouses(); 
+          fetchHouses();
+          if (selectedHouseId) fetchResidents(selectedHouseId);
           showSuccess('Права владения переданы');
       } catch (err: any) { setError('Ошибка передачи прав'); }
   };
@@ -818,11 +827,7 @@ export const HouseManagement = () => {
       if (!selectedResident) return;
       try {
           if (level === 'none') {
-               await api.post('/permissions', {
-                  userId: selectedResident.userId,
-                  deviceId,
-                  permissionLevel: 'viewer' 
-              });
+              await api.delete(`/permissions/user/${selectedResident.userId}/device/${deviceId}`);
           } else {
               await api.post('/permissions', {
                   userId: selectedResident.userId,
@@ -917,43 +922,40 @@ export const HouseManagement = () => {
   };
 
   return (
-    <Box sx={{ mt: 4, width: '100%' }}>
+    <GlassPage>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4">Управление домами</Typography>
+        <Typography variant="h4" sx={{ color: '#fff' }}>Управление домами</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenHouseDialog(true)}>
           Добавить дом
         </Button>
       </Box>
 
-      <Snackbar 
-          open={!!error || !!successMessage} 
-          autoHideDuration={4000} 
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={handleCloseSnackbar} severity={error ? "error" : "success"} sx={{ width: '100%' }}>
-          {error || successMessage}
-        </Alert>
-      </Snackbar>
+      <Toast
+        open={!!error || !!successMessage}
+        message={error || successMessage || ''}
+        severity={error ? 'error' : 'success'}
+        onClose={handleCloseSnackbar}
+      />
 
       <Box>
         {houses.map(house => {
           const isOwner = house.currentUserRole === 'owner';
           const isAdmin = house.currentUserRole === 'admin';
-          const isSystemAdmin = user?.role === 'admin'; // Админ системы имеет полный доступ
-          const canManageStructure = isOwner || isSystemAdmin;
-          const canManageDevices = isOwner || isAdmin || isSystemAdmin;
+          const isSystemAdmin = user?.role === 'admin';
+          // Глобальный админ в чужом доме не управляет структурой/ролями/правами — только передача владения
+          const canManageStructure = isOwner;
+          const canManageDevices = isOwner || isAdmin;
 
           return (
           <Accordion 
               key={house.houseId} 
               expanded={expandedHouse === house.houseId} 
               onChange={handleExpandHouse(house.houseId)}
-              sx={{ mb: 2, border: '1px solid #e0e0e0', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+              sx={{ mb: 2, bgcolor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, '&:before': { display: 'none' }, color: '#fff' }}
           >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#fff' }} />}>
                 <Box display="flex" alignItems="center" width="100%" pr={2}>
-                    <HomeIcon color="primary" sx={{ mr: 2 }} />
+                    <HomeIcon sx={{ mr: 2, color: '#F08B5C' }} />
                     
                     {editingHouseId === house.houseId ? (
                         <InlineEdit
@@ -962,7 +964,7 @@ export const HouseManagement = () => {
                             onCancel={() => setEditingHouseId(null)}
                         />
                     ) : (
-                        <Typography variant="h6" sx={{ flexGrow: 1 }}>{house.address}</Typography>
+                        <Typography variant="h6" sx={{ flexGrow: 1, color: '#fff' }}>{house.address}</Typography>
                     )}
 
                     <Box display="flex" onClick={(e) => e.stopPropagation()} gap={1} alignItems="center">
@@ -972,7 +974,7 @@ export const HouseManagement = () => {
                                 onClick={() => {
                                     setEditingHouseId(house.houseId);
                                 }}
-                                sx={{ cursor: 'pointer', p: 1, color: 'text.secondary', display: 'inline-flex' }}
+                                sx={{ cursor: 'pointer', p: 1, color: 'rgba(255,255,255,0.7)', display: 'inline-flex' }}
                             >
                                 <EditIcon fontSize="small" />
                             </Box>
@@ -982,12 +984,12 @@ export const HouseManagement = () => {
                                 display: 'inline-flex', 
                                 alignItems: 'center', 
                                 cursor: 'pointer', 
-                                border: '1px solid rgba(0, 0, 0, 0.23)', 
-                                borderRadius: '4px', 
-                                padding: '4px 10px',
-                                color: 'primary.main',
-                                '&:hover': { backgroundColor: 'rgba(25, 118, 210, 0.04)' },
-                                mr: 1
+                                border: '1px solid rgba(255,255,255,0.3)', 
+                                    borderRadius: '4px', 
+                                    padding: '4px 10px',
+                                    color: '#F08B5C',
+                                    '&:hover': { backgroundColor: 'rgba(240,139,92,0.15)' },
+                                    mr: 1
                             }}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1008,8 +1010,8 @@ export const HouseManagement = () => {
                                     alignItems: 'center', 
                                     cursor: 'pointer', 
                                     p: 1,
-                                    color: 'text.secondary',
-                                    '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)', borderRadius: '50%' }
+                                    color: 'rgba(255,255,255,0.7)',
+                                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '50%' }
                                 }}
                                 onClick={(e) => { e.stopPropagation(); handleLeaveHouse(house.houseId, isOwner); }}
                             >
@@ -1030,10 +1032,9 @@ export const HouseManagement = () => {
                 </Box>
             </AccordionSummary>
             
-            <AccordionDetails sx={{ bgcolor: '#fcfcfc', borderTop: '1px solid #eee' }}>
-                {/* ... Контент аккордеона ... */}
+            <AccordionDetails sx={{ bgcolor: 'rgba(0,0,0,0.15)', borderTop: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                    <Typography variant="subtitle1" color="text.secondary">Комнаты</Typography>
+                    <Typography variant="subtitle1" sx={{ color: 'rgba(255,255,255,0.8)' }}>Комнаты</Typography>
                     {canManageStructure && (
                         <Button startIcon={<AddIcon />} onClick={() => { setSelectedHouseId(house.houseId); setOpenRoomDialog(true); }}>
                     Добавить комнату
@@ -1041,18 +1042,18 @@ export const HouseManagement = () => {
                     )}
                 </Box>
                 
-                {rooms[house.houseId]?.length === 0 && <Typography color="text.secondary">Комнат пока нет.</Typography>}
+                {rooms[house.houseId]?.length === 0 && <Typography sx={{ color: 'rgba(255,255,255,0.6)' }}>Комнат пока нет.</Typography>}
                 
                   {rooms[house.houseId]?.map(room => (
                     <Accordion 
                         key={room.roomId}
                         expanded={expandedRoom === room.roomId}
                         onChange={handleExpandRoom(room.roomId)}
-                        sx={{ mb: 1, boxShadow: 'none', border: '1px solid #eee' }}
+                        sx={{ mb: 1, boxShadow: 'none', bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff' }}
                     >
-                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#fff' }} />}>
                              <Box display="flex" alignItems="center" width="100%" pr={2}>
-                                <MeetingRoomIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                                <MeetingRoomIcon sx={{ mr: 2, color: 'rgba(255,255,255,0.7)' }} />
                                 
                                 {editingRoomId === room.roomId ? (
                                     <InlineEdit
@@ -1062,11 +1063,11 @@ export const HouseManagement = () => {
                                     />
                                 ) : (
                                     <Box flexGrow={1} display="flex" alignItems="center">
-                                        <Typography variant="subtitle1">{room.roomName}</Typography>
+                                        <Typography variant="subtitle1" sx={{ color: '#fff' }}>{room.roomName}</Typography>
                                         <Chip 
                                             label={`${allDevices.filter(d => d.roomId === room.roomId).length} устройств`} 
                                             size="small" 
-                                            sx={{ ml: 2, height: 20, fontSize: '0.75rem' }} 
+                                            sx={{ ml: 2, height: 20, fontSize: '0.75rem', bgcolor: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }} 
                                         />
                                     </Box>
                                 )}
@@ -1078,7 +1079,7 @@ export const HouseManagement = () => {
                                             onClick={() => {
                                                 setEditingRoomId(room.roomId);
                                             }}
-                                            sx={{ cursor: 'pointer', p: 1, color: 'text.secondary', display: 'inline-flex' }}
+                                            sx={{ cursor: 'pointer', p: 1, color: 'rgba(255,255,255,0.7)', display: 'inline-flex' }}
                                         >
                                             <EditIcon fontSize="small" />
                                         </Box>
@@ -1090,12 +1091,12 @@ export const HouseManagement = () => {
                                                     display: 'inline-flex', 
                                                     alignItems: 'center', 
                                                     cursor: 'pointer', 
-                                                    border: '1px solid rgba(0, 0, 0, 0.23)', 
+                                                    border: '1px solid rgba(255,255,255,0.3)', 
                                                     borderRadius: '4px', 
                                                     padding: '4px 10px',
-                                                    color: 'primary.main',
+                                                    color: '#F08B5C',
                                                     mr: 1,
-                                                    '&:hover': { backgroundColor: 'rgba(25, 118, 210, 0.04)' }
+                                                    '&:hover': { backgroundColor: 'rgba(240,139,92,0.15)' }
                                                 }}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -1104,7 +1105,7 @@ export const HouseManagement = () => {
                                                 }}
                                             >
                                                 <AddIcon fontSize="small" sx={{ mr: 0.5 }} />
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>Девайс</Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 500, color: '#fff' }}>Девайс</Typography>
                                             </Box>
                                             {canManageStructure && (
                                                 <Box 
@@ -1120,9 +1121,9 @@ export const HouseManagement = () => {
                                 </Box>
                              </Box>
                         </AccordionSummary>
-                        <AccordionDetails sx={{ bgcolor: '#fff', pl: 4 }}>
+                        <AccordionDetails sx={{ bgcolor: 'rgba(0,0,0,0.2)', pl: 4, color: '#fff' }}>
                             {allDevices.filter(d => d.roomId === room.roomId).length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">Устройств нет</Typography>
+                                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>Устройств нет</Typography>
                             ) : (
                                 <Box>
                                     {allDevices.filter(d => d.roomId === room.roomId).map(device => (
@@ -1130,20 +1131,20 @@ export const HouseManagement = () => {
                                             key={device.deviceId}
                                             expanded={expandedDevice === device.deviceId}
                                             onChange={handleExpandDevice(device.deviceId)}
-                                            sx={{ mb: 1, border: '1px solid #f0f0f0', boxShadow: 'none' }}
+                                            sx={{ mb: 1, border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'none', bgcolor: 'rgba(255,255,255,0.03)', color: '#fff' }}
                                         >
-                                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                            <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#fff' }} />}>
                                                 <Box display="flex" alignItems="center" width="100%">
-                                                    <RouterIcon sx={{ mr: 2, color: 'primary.light' }} />
+                                                    <RouterIcon sx={{ mr: 2, color: '#F08B5C' }} />
                                                     <Box>
-                                                        <Typography variant="body1" fontWeight="medium">{device.name}</Typography>
-                                                        <Typography variant="caption" color="text.secondary">
+                                                        <Typography variant="body1" fontWeight="medium" sx={{ color: '#fff' }}>{device.name}</Typography>
+                                                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
                                                             {device.type} | IP: {device.ip || '-'}
                                                         </Typography>
                                                     </Box>
                                                 </Box>
                                             </AccordionSummary>
-                                            <AccordionDetails sx={{ bgcolor: '#fafafa' }}>
+                                            <AccordionDetails sx={{ bgcolor: 'rgba(0,0,0,0.15)', color: '#fff' }}>
                                                 {canManageDevices ? (
                                                     <DeviceEditItem 
                                                         device={device}
@@ -1153,7 +1154,7 @@ export const HouseManagement = () => {
                                                         onSchedule={handleOpenSchedule}
                                                     />
                                                 ) : (
-                                                    <Typography color="text.secondary">
+                                                    <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
                                                         Информация об устройстве доступна только владельцу или совладельцу.
                                                     </Typography>
                                                 )}
@@ -1423,9 +1424,13 @@ export const HouseManagement = () => {
           <DialogTitle>Жильцы дома</DialogTitle>
           <DialogContent>
               {/* Добавление жильца - Только для Owner/Admin */}
-              {(houses.find(h => h.houseId === selectedHouseId)?.currentUserRole === 'owner' || 
-                houses.find(h => h.houseId === selectedHouseId)?.currentUserRole === 'admin' ||
-                houses.find(h => h.houseId === selectedHouseId)?.currentUserRole === 'inviter') && (
+              {(() => {
+                const currentHouse = houses.find(h => h.houseId === selectedHouseId);
+                const role = currentHouse?.currentUserRole;
+                const isMember = role === 'owner' || role === 'admin' || role === 'inviter';
+                const globalAdminNotInHouse = user?.role === 'admin' && !role;
+                return isMember && !globalAdminNotInHouse;
+              })() && (
                   <Box display="flex" gap={1} mt={1} mb={2}>
                       <TextField 
                           label="Email пользователя" 
@@ -1452,14 +1457,15 @@ export const HouseManagement = () => {
                       
                       const amIOwner = myRole === 'owner';
                       const amIAdmin = myRole === 'admin';
-                      const canManage = amIOwner || amIAdmin;
+                      // Глобальный админ, не добавленный в дом, не управляет жильцами (нет кнопок пригласить/удалить)
+                      const canManage = (amIOwner || amIAdmin) && !(user?.role === 'admin' && !currentHouse?.currentUserRole);
 
                       const isTargetOwner = res.role === 'owner';
                       const isTargetAdmin = res.role === 'admin';
                       const isMe = res.userId === user?.userId;
 
                       return (
-                      <ListItem key={res.userId} sx={{ flexDirection: 'column', alignItems: 'flex-start', borderBottom: '1px solid #eee', py: 2 }}>
+                      <ListItem key={res.userId} sx={{ flexDirection: 'column', alignItems: 'flex-start', borderBottom: '1px solid rgba(255,255,255,0.15)', py: 2 }}>
                           <Box display="flex" justifyContent="space-between" width="100%" alignItems="center">
                               <ListItemText 
                                   primary={
@@ -1477,6 +1483,12 @@ export const HouseManagement = () => {
                                   {canManage && !isTargetOwner && !isTargetAdmin && !isMe && (
                                       <Button size="small" startIcon={<SettingsIcon />} onClick={() => handleOpenPermissions(res)}>
                                           Права
+                                      </Button>
+                                  )}
+                                  {/* Глобальный админ в чужом доме: только передача владения владельцем одному из совладельцев */}
+                                  {user?.role === 'admin' && !amIOwner && isTargetOwner && (
+                                      <Button size="small" variant="outlined" color="primary" onClick={() => setTransferToNewOwnerDialog(true)}>
+                                          Передать владение
                                       </Button>
                                   )}
                               </Box>
@@ -1534,14 +1546,37 @@ export const HouseManagement = () => {
               <Button onClick={() => setOpenResidentsDialog(false)}>Закрыть</Button>
           </DialogActions>
       </Dialog>
+
+      {/* Диалог выбора нового владельца (для глобального админа) */}
+      <Dialog open={transferToNewOwnerDialog} onClose={() => setTransferToNewOwnerDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Передать владение</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Выберите совладельца, который станет новым владельцем дома.
+          </Typography>
+          <List dense>
+            {residents.filter(r => r.role === 'admin').map(r => (
+              <ListItem key={r.userId}>
+                <ListItemText primary={r.username} secondary={r.email} />
+                <Button size="small" variant="outlined" onClick={async () => {
+                  if (!window.confirm('Передать владение этому совладельцу? Текущий владелец станет совладельцем.')) return;
+                  setTransferToNewOwnerDialog(false);
+                  await handleTransferOwnership(r.userId, true);
+                }}>Выбрать</Button>
+              </ListItem>
+            ))}
+          </List>
+          {residents.filter(r => r.role === 'admin').length === 0 && (
+            <Typography color="text.secondary">Нет совладельцев. Сначала владелец должен назначить кого-то совладельцем.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransferToNewOwnerDialog(false)}>Отмена</Button>
+        </DialogActions>
+      </Dialog>
       
       {/* Диалог управления правами */}
-      <Dialog 
-        open={openPermissionsDialog} 
-        onClose={() => setOpenPermissionsDialog(false)} 
-        fullWidth 
-        sx={{ zIndex: 2000 }}
-      >
+      <Dialog open={openPermissionsDialog} onClose={() => setOpenPermissionsDialog(false)} fullWidth sx={{ zIndex: 2000 }}>
           <DialogTitle>Права доступа: {selectedResident?.username}</DialogTitle>
           <DialogContent>
               <Typography variant="body2" sx={{ mb: 2 }}>
@@ -1589,6 +1624,6 @@ export const HouseManagement = () => {
         />
       )}
 
-    </Box>
+    </GlassPage>
   );
 };

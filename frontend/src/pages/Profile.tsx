@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Container, Paper, Typography, Box, Avatar, Button, TextField, Alert, Divider, CircularProgress, useMediaQuery, useTheme } from '@mui/material';
+import { Typography, Box, Avatar, Button, TextField, Alert, Divider, CircularProgress, useMediaQuery, useTheme } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
 import { api } from '../api/client';
+import { GlassPage } from '../components/GlassPage';
+import { Toast } from '../components/Toast';
 
 interface UserProfile {
     userId: number;
@@ -133,18 +135,21 @@ export const Profile = () => {
       }
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
-  if (!profile) return <Alert severity="error">Профиль не найден</Alert>;
+  if (loading) return <GlassPage><Box display="flex" justifyContent="center" py={6}><CircularProgress sx={{ color: '#F08B5C' }} /></Box></GlassPage>;
+  if (!profile) return <GlassPage><Alert severity="error">Профиль не найден</Alert></GlassPage>;
 
-  // Хардкод URL бэкенда для картинок, так как axios instance настроен на /api
   const backendUrl = 'http://localhost:5000'; 
 
   return (
-    <Container maxWidth="md" sx={{ mt: 4 }}>
-        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+    <GlassPage>
+        <Toast
+          open={!!error || !!success}
+          message={error || success || ''}
+          severity={error ? 'error' : 'success'}
+          onClose={() => { setError(''); setSuccess(''); }}
+        />
 
-      <Paper elevation={3} sx={{ p: 4 }}>
+      <Box sx={{ p: 2 }}>
         <Box display="flex" flexDirection={isMobile ? 'column' : 'row'} gap={4}>
             {/* Левая колонка: Аватар */}
             <Box display="flex" flexDirection="column" alignItems="center" width={isMobile ? '100%' : '30%'}>
@@ -301,7 +306,7 @@ export const Profile = () => {
                 </Box>
           </Box>
         </Box>
-      </Paper>
-    </Container>
+      </Box>
+    </GlassPage>
   );
 };
