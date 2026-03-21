@@ -48,6 +48,8 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
+builder.Services.AddHttpClient();
+
 builder.Services.AddSingleton<SmartHome.API.Services.EventPublisher>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<SmartHome.API.Services.EventPublisher>>();
@@ -100,6 +102,25 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+
+// Пользователь demo для эмулятора (пароль из конфига Emulator:DemoPassword, по умолчанию "demo")
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<SmartHomeContext>();
+    var demoUser = db.Users.AsNoTracking().FirstOrDefault(u => u.Username == "demo");
+    if (demoUser == null)
+    {
+        var demoPassword = builder.Configuration["Emulator:DemoPassword"] ?? "demo";
+        db.Users.Add(new User
+        {
+            Username = "demo",
+            Email = "demo@local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(demoPassword),
+            Role = "user"
+        });
+        db.SaveChanges();
+    }
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

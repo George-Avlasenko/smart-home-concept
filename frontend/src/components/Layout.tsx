@@ -3,13 +3,16 @@ import { Box } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { GlassNavigation } from './GlassNavigation';
 import { BackgroundBlur } from './BackgroundBlur';
+import { scrollbarLikeDevicesSx } from '../theme/scrollbarStyles';
 
 export const Layout = () => {
   return (
     <Box
       sx={{
         display: 'flex',
-        minHeight: '100vh',
+        height: '100dvh',
+        minHeight: '100dvh',
+        minWidth: 550,
         width: '100%',
         overflow: 'hidden',
         position: 'relative',
@@ -17,21 +20,26 @@ export const Layout = () => {
       }}
     >
       <BackgroundBlur />
-      {/* Левая навигационная панель */}
+      {/* Левая панель фиксирована; спейсер держит место в потоке */}
       <GlassNavigation />
-      
-      {/* Основной контент */}
+      <Box sx={{ width: 80, flexShrink: 0 }} aria-hidden />
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
-          width: '100%',
-          minHeight: '100vh',
-          overflow: 'auto',
+          flex: 1,
+          minWidth: 0,
+          height: '100dvh',
+          minHeight: 0,
+          pr: '6px',
+          mr: '6px',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           display: 'flex',
           flexDirection: 'column',
           position: 'relative',
           zIndex: 1,
+          WebkitOverflowScrolling: 'touch',
+          ...scrollbarLikeDevicesSx,
         }}
       >
         <Outlet />

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 
@@ -203,6 +203,15 @@ public partial class SmartHomeContext : DbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.MinTemp).HasColumnName("min_temp").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.MaxTemp).HasColumnName("max_temp").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.UseTempRange).HasColumnName("use_temp_range").HasDefaultValue(false);
+            entity.Property(e => e.MinHumidity).HasColumnName("min_humidity").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.MaxHumidity).HasColumnName("max_humidity").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.MaxCo2).HasColumnName("max_co2").HasColumnType("decimal(8,2)");
+            entity.Property(e => e.OutdoorTemp).HasColumnName("outdoor_temp").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.OutdoorHumidity).HasColumnName("outdoor_humidity").HasColumnType("decimal(5,2)");
+            entity.Property(e => e.OutdoorCo2).HasColumnName("outdoor_co2").HasColumnType("decimal(8,2)");
 
             entity.HasOne(d => d.Owner).WithMany()
                 .HasForeignKey(d => d.OwnerId)

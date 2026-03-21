@@ -8,7 +8,10 @@ public class HouseDto
     public string Address { get; set; } = string.Empty;
     public DateTime? CreatedAt { get; set; }
     public int? OwnerId { get; set; }
-    public string? CurrentUserRole { get; set; } // Роль текущего пользователя (owner, admin, member, viewer)
+    public string? CurrentUserRole { get; set; }
+    public decimal? MinTemp { get; set; }
+    public decimal? MaxTemp { get; set; }
+    public bool UseTempRange { get; set; }
 }
 
 public class CreateHouseDto
@@ -19,6 +22,8 @@ public class CreateHouseDto
 
 public class UpdateHouseDto
 {
-    [Required]
-    public string Address { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public decimal? MinTemp { get; set; }
+    public decimal? MaxTemp { get; set; }
+    public bool? UseTempRange { get; set; }
 }

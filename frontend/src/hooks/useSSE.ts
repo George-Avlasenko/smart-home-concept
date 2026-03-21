@@ -18,6 +18,7 @@ interface UseSSEOptions {
 export const useSSE = (options: UseSSEOptions = {}) => {
   const { enabled = true } = options;
   const [isConnected, setIsConnected] = useState(false);
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
@@ -117,6 +118,7 @@ export const useSSE = (options: UseSSEOptions = {}) => {
                     if (jsonStr) {
                       const data = JSON.parse(jsonStr);
                       if (data.type !== 'connected' && data.type !== 'ping') {
+                        setLastEventAt(Date.now());
                         console.log('[SSE] Event received:', data.type, data.data);
                         callbacksRef.current.onMessage?.(data);
                       }
@@ -182,6 +184,6 @@ export const useSSE = (options: UseSSEOptions = {}) => {
     };
   }, [connect, enabled]);
 
-  return { isConnected };
+  return { isConnected, lastEventAt };
 };
 

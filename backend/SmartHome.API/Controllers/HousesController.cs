@@ -59,7 +59,10 @@ public class HousesController : ControllerBase
                         Address = h.Address,
                         CreatedAt = h.CreatedAt,
                         OwnerId = h.OwnerId,
-                        CurrentUserRole = role
+                        CurrentUserRole = role,
+                        MinTemp = h.MinTemp,
+                        MaxTemp = h.MaxTemp,
+                        UseTempRange = h.UseTempRange
                     };
                 }).ToList();
                 return Ok(adminDtos);
@@ -90,7 +93,10 @@ public class HousesController : ControllerBase
                 Address = x.House.Address,
                 CreatedAt = x.House.CreatedAt,
                 OwnerId = x.House.OwnerId,
-                CurrentUserRole = x.Role
+                CurrentUserRole = x.Role,
+                MinTemp = x.House.MinTemp,
+                MaxTemp = x.House.MaxTemp,
+                UseTempRange = x.House.UseTempRange
             }).ToList();
 
             return Ok(dtos);
@@ -124,7 +130,10 @@ public class HousesController : ControllerBase
                 HouseId = house.HouseId,
                 Address = house.Address,
                 CreatedAt = house.CreatedAt,
-                OwnerId = house.OwnerId
+                OwnerId = house.OwnerId,
+                MinTemp = house.MinTemp,
+                MaxTemp = house.MaxTemp,
+                UseTempRange = house.UseTempRange
             };
         }
         catch (Exception ex)
@@ -207,7 +216,10 @@ public class HousesController : ControllerBase
                 HouseId = house.HouseId,
                 Address = house.Address,
                 CreatedAt = house.CreatedAt,
-                OwnerId = house.OwnerId
+                OwnerId = house.OwnerId,
+                MinTemp = house.MinTemp,
+                MaxTemp = house.MaxTemp,
+                UseTempRange = house.UseTempRange
             });
         }
         catch (Exception ex)
@@ -247,7 +259,7 @@ public class HousesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateHouse(int id, [FromBody] CreateHouseDto dto)
+    public async Task<IActionResult> UpdateHouse(int id, [FromBody] UpdateHouseDto dto)
     {
         try
         {
@@ -258,26 +270,30 @@ public class HousesController : ControllerBase
             if (house == null) return NotFound();
             if (house.OwnerId != userId && userRole != "admin") return Forbid();
 
-            // Проверка на дубликат (если адрес изменился)
-            if (house.Address != dto.Address)
+            if (dto.Address != null)
             {
-                var existingHouse = await _context.Houses
-                    .FirstOrDefaultAsync(h => h.OwnerId == userId && h.Address.ToLower() == dto.Address.ToLower());
-                
-                if (existingHouse != null)
+                if (house.Address != dto.Address)
                 {
-                    return BadRequest($"У вас уже есть дом с адресом '{dto.Address}'");
+                    var existingHouse = await _context.Houses
+                        .FirstOrDefaultAsync(h => h.OwnerId == userId && h.Address.ToLower() == dto.Address.ToLower());
+                    if (existingHouse != null)
+                        return BadRequest($"У вас уже есть дом с адресом '{dto.Address}'");
                 }
+                house.Address = dto.Address;
             }
+            if (dto.MinTemp.HasValue) house.MinTemp = dto.MinTemp.Value;
+            if (dto.MaxTemp.HasValue) house.MaxTemp = dto.MaxTemp.Value;
+            if (dto.UseTempRange.HasValue) house.UseTempRange = dto.UseTempRange.Value;
 
-            house.Address = dto.Address;
             await _context.SaveChangesAsync();
 
-            // Публикуем событие обновления дома
             await _eventPublisher.PublishAsync("house.updated", new
             {
                 houseId = house.HouseId,
-                address = house.Address
+                address = house.Address,
+                minTemp = house.MinTemp,
+                maxTemp = house.MaxTemp,
+                useTempRange = house.UseTempRange
             });
 
             return Ok(new HouseDto
@@ -285,7 +301,10 @@ public class HousesController : ControllerBase
                 HouseId = house.HouseId,
                 Address = house.Address,
                 CreatedAt = house.CreatedAt,
-                OwnerId = house.OwnerId
+                OwnerId = house.OwnerId,
+                MinTemp = house.MinTemp,
+                MaxTemp = house.MaxTemp,
+                UseTempRange = house.UseTempRange
             });
         }
         catch (Exception ex)

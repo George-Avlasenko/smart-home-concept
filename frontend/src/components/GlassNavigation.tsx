@@ -5,6 +5,7 @@ import DevicesIcon from '@mui/icons-material/Devices';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonIcon from '@mui/icons-material/Person';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -17,7 +18,7 @@ interface NavItem {
 
 export const GlassNavigation: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   const navItems: NavItem[] = [
     { icon: <HomeIcon />, label: 'Дашборд', path: '/' },
@@ -41,6 +42,9 @@ export const GlassNavigation: React.FC = () => {
   return (
     <Box
       sx={{
+        position: 'fixed',
+        left: 0,
+        top: 0,
         width: 80,
         minWidth: 80,
         height: '100vh',
@@ -49,11 +53,10 @@ export const GlassNavigation: React.FC = () => {
         alignItems: 'center',
         py: 3,
         gap: 2,
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+        background: 'rgba(255, 255, 255, 0.12)',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
         borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-        position: 'relative',
         zIndex: 10,
       }}
     >
@@ -66,9 +69,10 @@ export const GlassNavigation: React.FC = () => {
               height: 56,
               borderRadius: '4px',
               background: window.location.pathname === item.path
-                ? 'rgba(255, 107, 53, 0.3)'
-                : 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)',
+                ? 'rgba(255, 107, 53, 0.4)'
+                : 'rgba(255, 255, 255, 0.14)',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
               border: window.location.pathname === item.path
                 ? '1px solid rgba(255, 107, 53, 0.5)'
                 : '1px solid rgba(255, 255, 255, 0.2)',
@@ -86,6 +90,34 @@ export const GlassNavigation: React.FC = () => {
           </IconButton>
         </Tooltip>
       ))}
+
+      <Box sx={{ flex: 1 }} />
+
+      <Tooltip title="Выйти" placement="right">
+        <IconButton
+          onClick={logout}
+          sx={{
+            width: 56,
+            height: 56,
+            borderRadius: '4px',
+            background: 'rgba(255, 255, 255, 0.14)',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            color: '#FFFFFF',
+            transition: 'all 0.08s ease',
+            mb: 1,
+            '&:hover': {
+              background: 'rgba(255, 107, 53, 0.4)',
+              boxShadow: '0 0 20px rgba(255, 107, 53, 0.5)',
+              transform: 'scale(1.1)',
+              border: '1px solid rgba(255, 107, 53, 0.6)',
+            },
+          }}
+        >
+          <LogoutIcon />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 };

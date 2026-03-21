@@ -365,7 +365,7 @@ export const HouseManagement = () => {
 
   const DEVICE_TYPES = [
     { value: 'light', label: 'Освещение' },
-    { value: 'thermostat', label: 'Термостат' },
+    { value: 'thermostat', label: 'Кондиционер' },
     { value: 'switch', label: 'Выключатель' },
     { value: 'outlet', label: 'Розетка' },
     { value: 'kettle', label: 'Чайник' },
@@ -374,7 +374,9 @@ export const HouseManagement = () => {
     { value: 'camera', label: 'Камера' },
     { value: 'window', label: 'Окно' },
     { value: 'sensor', label: 'Датчик' },
-    { value: 'lock', label: 'Замок' }
+    { value: 'lock', label: 'Замок' },
+    { value: 'humidifier', label: 'Увлажнитель' },
+    { value: 'ventilation', label: 'Вентиляция' }
   ];
 
   const [error, setError] = useState('');
@@ -496,7 +498,16 @@ export const HouseManagement = () => {
   const fetchHouses = async () => {
     try {
       const res = await api.get<House[]>('/houses');
-      setHouses(res.data);
+      const list = res.data ?? [];
+      setHouses(list);
+      if (user?.username === 'demo' && list.length === 0) {
+        try {
+          await api.post('/emulator/ensure-demo-house');
+          const retry = await api.get<House[]>('/houses');
+          setHouses(retry.data ?? []);
+          fetchDevices();
+        } catch (_) { /* ignore */ }
+      }
     } catch (err: any) {
         console.error("Error fetching houses:", err);
         setError("Не удалось загрузить список домов: " + (err.response?.data?.title || err.message));
@@ -954,8 +965,15 @@ export const HouseManagement = () => {
               sx={{ mb: 2, bgcolor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, '&:before': { display: 'none' }, color: '#fff' }}
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#fff' }} />}>
-                <Box display="flex" alignItems="center" width="100%" pr={2}>
-                    <HomeIcon sx={{ mr: 2, color: '#F08B5C' }} />
+                <Box
+                  display="flex"
+                  alignItems="flex-start"
+                  width="100%"
+                  pr={2}
+                  flexWrap="wrap"
+                  gap={1}
+                >
+                    <HomeIcon sx={{ mr: { xs: 0, sm: 2 }, color: '#F08B5C', flex: '0 0 auto' }} />
                     
                     {editingHouseId === house.houseId ? (
                         <InlineEdit
@@ -964,10 +982,35 @@ export const HouseManagement = () => {
                             onCancel={() => setEditingHouseId(null)}
                         />
                     ) : (
-                        <Typography variant="h6" sx={{ flexGrow: 1, color: '#fff' }}>{house.address}</Typography>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            flex: '1 1 240px',
+                            minWidth: 0,
+                            color: '#fff',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'normal',
+                          }}
+                        >
+                          {house.address}
+                        </Typography>
                     )}
 
-                    <Box display="flex" onClick={(e) => e.stopPropagation()} gap={1} alignItems="center">
+                    <Box
+                      display="flex"
+                      onClick={(e) => e.stopPropagation()}
+                      gap={1}
+                      alignItems="center"
+                      flexWrap="wrap"
+                      sx={{
+                        flex: '0 1 auto',
+                        maxWidth: '100%',
+                        justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+                        // На маленьких экранах всё "после названия" принудительно уходит на 2-ю строку.
+                        flexBasis: { xs: '100%', sm: 'auto' },
+                        mt: { xs: 0.5, sm: 0 },
+                      }}
+                    >
                         {editingHouseId !== house.houseId && canManageStructure && (
                             <Box 
                                 component="span" 
@@ -1052,27 +1095,68 @@ export const HouseManagement = () => {
                         sx={{ mb: 1, boxShadow: 'none', bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff' }}
                     >
                         <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#fff' }} />}>
-                             <Box display="flex" alignItems="center" width="100%" pr={2}>
-                                <MeetingRoomIcon sx={{ mr: 2, color: 'rgba(255,255,255,0.7)' }} />
+                             <Box
+                                display="flex"
+                                alignItems="flex-start"
+                                width="100%"
+                                pr={2}
+                                flexWrap="wrap"
+                                gap={1}
+                             >
+                                <MeetingRoomIcon sx={{ mr: { xs: 0, sm: 2 }, color: 'rgba(255,255,255,0.7)' }} />
                                 
                                 {editingRoomId === room.roomId ? (
-                                    <InlineEdit
-                                        initialValue={room.roomName}
-                                        onSave={(val) => handleEditRoom(room.roomId, val)}
-                                        onCancel={() => setEditingRoomId(null)}
-                                    />
+                                    <Box sx={{ flex: '1 1 240px', minWidth: 0 }}>
+                                        <InlineEdit
+                                            initialValue={room.roomName}
+                                            onSave={(val) => handleEditRoom(room.roomId, val)}
+                                            onCancel={() => setEditingRoomId(null)}
+                                        />
+                                    </Box>
                                 ) : (
-                                    <Box flexGrow={1} display="flex" alignItems="center">
-                                        <Typography variant="subtitle1" sx={{ color: '#fff' }}>{room.roomName}</Typography>
+                                    <Box
+                                        sx={{
+                                            flex: '1 1 240px',
+                                            minWidth: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: 1,
+                                        }}
+                                    >
+                                        <Typography
+                                            variant="subtitle1"
+                                            sx={{
+                                                color: '#fff',
+                                                wordBreak: 'break-word',
+                                                whiteSpace: 'normal',
+                                                flex: '1 1 auto',
+                                            }}
+                                        >
+                                            {room.roomName}
+                                        </Typography>
                                         <Chip 
                                             label={`${allDevices.filter(d => d.roomId === room.roomId).length} устройств`} 
                                             size="small" 
-                                            sx={{ ml: 2, height: 20, fontSize: '0.75rem', bgcolor: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }} 
+                                            sx={{ height: 20, fontSize: '0.75rem', bgcolor: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }} 
                                         />
                                     </Box>
                                 )}
 
-                                <Box display="flex" onClick={(e) => e.stopPropagation()} gap={1} alignItems="center">
+                                <Box
+                                    display="flex"
+                                    onClick={(e) => e.stopPropagation()}
+                                    gap={1}
+                                    alignItems="center"
+                                    flexWrap="wrap"
+                                    sx={{
+                                        flex: '0 0 auto',
+                                        maxWidth: '100%',
+                                        justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+                                        flexBasis: { xs: '100%', sm: 'auto' },
+                                        mt: { xs: 0.5, sm: 0 },
+                                    }}
+                                >
                                     {editingRoomId !== room.roomId && canManageStructure && (
                                         <Box 
                                             component="span" 

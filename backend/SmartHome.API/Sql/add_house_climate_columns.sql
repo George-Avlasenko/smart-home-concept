@@ -1,0 +1,10 @@
+-- Добавление колонок климата к существующей таблице houses (без пересоздания БД)
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS min_temp DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS max_temp DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS use_temp_range BOOLEAN DEFAULT FALSE;
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS min_humidity DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS max_humidity DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS max_co2 DECIMAL(8,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS outdoor_temp DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS outdoor_humidity DECIMAL(5,2);
+ALTER TABLE houses ADD COLUMN IF NOT EXISTS outdoor_co2 DECIMAL(8,2);

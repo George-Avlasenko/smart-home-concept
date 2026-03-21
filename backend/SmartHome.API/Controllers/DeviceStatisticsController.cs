@@ -44,7 +44,7 @@ public class DeviceStatisticsController : ControllerBase
 
             if (device == null) return NotFound("Device not found");
 
-            // Проверка доступа: только владелец или совладелец (admin)
+            // Проверка доступа: только владелец или совладелец (admin дома)
             var isOwner = device.Room.House.OwnerId == userId;
             var isCoOwner = await _context.HouseUsers
                 .AnyAsync(hu => hu.HouseId == device.Room.HouseId && 
@@ -53,7 +53,7 @@ public class DeviceStatisticsController : ControllerBase
 
             if (!isOwner && !isCoOwner)
             {
-                return Forbid("Доступ к статистике имеют только владелец и совладелец дома");
+                return StatusCode(403, "Доступ к статистике имеют только владелец и совладелец дома");
             }
 
             var fromDate = DateTime.UtcNow.AddDays(-days);

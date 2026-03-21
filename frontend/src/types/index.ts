@@ -42,14 +42,20 @@ export interface Device {
   houseId?: number;
   houseAddress?: string;
   settings?: Record<string, any>;
-  currentUserPermission?: string; // 'viewer', 'user', 'admin'
+  currentUserPermission?: string;
+  outdoorTemp?: number;
+  outdoorHumidity?: number;
+  outdoorCo2?: number;
 }
 
 export interface House {
   houseId: number;
   address: string;
   ownerId?: number;
-  currentUserRole?: string; // 'owner', 'admin', 'member', 'viewer'
+  currentUserRole?: string;
+  minTemp?: number;
+  maxTemp?: number;
+  useTempRange?: boolean;
 }
 
 export interface Room {

@@ -34,13 +34,24 @@ public class SensorDataWorker : BackgroundService
                 {
                     var context = scope.ServiceProvider.GetRequiredService<SmartHomeContext>();
                     
-                    // Find devices that can produce readings
+                    // Демо-дом ведёт эмулятор — не пишем в его устройства, иначе в график попадает смесь данных (темп >10 и т.д.)
+                    var demoUser = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == "demo", stoppingToken);
+                    var demoHouseId = (int?)null;
+                    if (demoUser != null)
+                    {
+                        var demoHouse = await context.Houses.AsNoTracking().FirstOrDefaultAsync(h => h.OwnerId == demoUser.UserId && h.Address == "Демо-дом", stoppingToken);
+                        if (demoHouse != null) demoHouseId = demoHouse.HouseId;
+                    }
+
                     var devices = await context.Devices
-                        .Where(d => d.Type == "sensor" || d.Type == "thermostat" || (d.Type == "kettle" && d.Status == DeviceStatus.active)) 
+                        .Include(d => d.Room)
+                        .Where(d => d.Type == "sensor" || d.Type == "thermostat" || (d.Type == "kettle" && d.Status == DeviceStatus.active))
                         .ToListAsync(stoppingToken);
 
                     foreach (var device in devices)
                     {
+                        if (demoHouseId.HasValue && device.Room?.HouseId == demoHouseId.Value)
+                            continue;
                         if (device.Type == "sensor")
                         {
                             context.SensorReadings.Add(new SensorReading

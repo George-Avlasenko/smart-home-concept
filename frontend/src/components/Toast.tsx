@@ -12,11 +12,13 @@ interface ToastProps {
   message: string;
   severity: 'success' | 'error';
   onClose: () => void;
+  /** Убрать backdrop-filter (легче для GPU) */
+  disableBackdropBlur?: boolean;
 }
 
 const DURATION_SEC = DURATION_MS / 1000;
 
-export const Toast: React.FC<ToastProps> = ({ open, message, severity, onClose }) => {
+export const Toast: React.FC<ToastProps> = ({ open, message, severity, onClose, disableBackdropBlur = true }) => {
   const [progress, setProgress] = useState(100);
   const [secondsLeft, setSecondsLeft] = useState(DURATION_SEC);
 
@@ -56,8 +58,9 @@ export const Toast: React.FC<ToastProps> = ({ open, message, severity, onClose }
         maxWidth: 480,
         display: 'flex',
         flexDirection: 'column',
-        background: isError ? 'rgba(40, 20, 20, 0.95)' : 'rgba(20, 40, 30, 0.95)',
-        backdropFilter: 'blur(12px)',
+        background: isError ? 'rgba(40, 20, 20, 0.98)' : 'rgba(20, 40, 30, 0.98)',
+        backdropFilter: disableBackdropBlur ? 'none' : 'blur(12px)',
+        WebkitBackdropFilter: disableBackdropBlur ? 'none' : 'blur(12px)',
         border: isError ? '1px solid rgba(255, 100, 100, 0.5)' : '1px solid rgba(100, 255, 150, 0.4)',
         borderRadius: 2,
         boxShadow: '0 8px 32px rgba(0,0,0,0.5)',

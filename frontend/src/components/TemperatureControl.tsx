@@ -37,9 +37,9 @@ export const TemperatureControl: React.FC<TemperatureControlProps> = ({
     <Card
       sx={{
         height: '100%',
-        background: 'rgba(255, 255, 255, 0.1)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+        background: 'rgba(255, 255, 255, 0.14)',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
         border: '1px solid rgba(255, 255, 255, 0.2)',
         boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
         borderRadius: 4,
@@ -139,8 +139,9 @@ export const TemperatureControl: React.FC<TemperatureControlProps> = ({
             width: 48,
             height: 48,
             borderRadius: '4px',
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
+            background: 'rgba(255, 255, 255, 0.14)',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             color: '#FFFFFF',
             '&:hover': {
@@ -157,8 +158,9 @@ export const TemperatureControl: React.FC<TemperatureControlProps> = ({
             width: 48,
             height: 48,
             borderRadius: '4px',
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
+            background: 'rgba(255, 255, 255, 0.14)',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             color: '#FFFFFF',
             '&:hover': {

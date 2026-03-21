@@ -28,11 +28,12 @@ interface ScheduleDialogProps {
     deviceId: number;
     deviceName: string;
     deviceType: string;
+    skipRequest?: boolean;
 }
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']; // Индексы: 1=Пн, 2=Вт, ..., 6=Сб, 0=Вс
 
-export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType }: ScheduleDialogProps) => {
+export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType, skipRequest = false }: ScheduleDialogProps) => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [newTime, setNewTime] = useState('08:00');
     // Инициализируем действие в зависимости от типа устройства
@@ -54,13 +55,17 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
 
     useEffect(() => {
         if (open && deviceId) {
+            if (skipRequest) {
+                setAccessDenied(true);
+                return;
+            }
             setAccessDenied(false);
             fetchSchedules();
             setNewTime('08:00');
             setNewAction(getDefaultAction());
             setSelectedDays([]);
         }
-    }, [open, deviceId, deviceType]);
+    }, [open, deviceId, deviceType, skipRequest]);
 
     const fetchSchedules = async () => {
         try {
@@ -244,8 +249,8 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
             sx={{
                 zIndex: 1300,
                 '& .MuiDialog-paper': {
-                    backdropFilter: 'blur(28px)',
-                    WebkitBackdropFilter: 'blur(28px)',
+                    backdropFilter: 'none',
+                    WebkitBackdropFilter: 'none',
                 },
             }}
         >

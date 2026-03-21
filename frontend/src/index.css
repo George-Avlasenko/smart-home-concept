@@ -2,8 +2,9 @@
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  --devices-scrollbar-thumb: rgba(255, 255, 255, 0.28);
+  --devices-scrollbar-track: transparent;
 
-  color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
 
@@ -24,8 +25,76 @@ a:hover {
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 550px;
   min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  overflow: hidden !important;
+}
+
+html, #root {
+  min-width: 550px;
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  overflow: hidden !important;
+}
+
+/* Кастомный скролл глобально (как на странице устройств) */
+html, body, #root, main, *, *::before, *::after {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--devices-scrollbar-thumb) var(--devices-scrollbar-track) !important;
+}
+
+html, body, #root, main {
+  height: 100%;
+}
+
+main {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar,
+main::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+  background: transparent !important;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+#root::-webkit-scrollbar-track,
+main::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+#root::-webkit-scrollbar-thumb,
+main::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: var(--devices-scrollbar-thumb) !important;
+  border-radius: 999px !important;
+  border: 2px solid transparent !important;
+  background-clip: content-box !important;
+}
+
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:single-button,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  -webkit-appearance: none;
 }
 
 h1 {

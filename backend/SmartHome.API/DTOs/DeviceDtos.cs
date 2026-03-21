@@ -14,6 +14,7 @@ public class DeviceDto
     public string? SerialNumber { get; set; } // Добавили
     public string Type { get; set; } = string.Empty;
     public string? Ip { get; set; }
+    public string? MacAddress { get; set; }
     public string Status { get; set; } = string.Empty;
     
     // Новые поля для группировки и настроек
@@ -21,6 +22,9 @@ public class DeviceDto
     public string HouseAddress { get; set; } = string.Empty;
     public Dictionary<string, object> Settings { get; set; } = new();
     public string? CurrentUserPermission { get; set; }
+    public decimal? OutdoorTemp { get; set; }
+    public decimal? OutdoorHumidity { get; set; }
+    public decimal? OutdoorCo2 { get; set; }
 }
 
 public class CreateDeviceDto

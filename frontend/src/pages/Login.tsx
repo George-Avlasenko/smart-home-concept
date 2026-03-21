@@ -86,8 +86,9 @@ export const Login = () => {
           sx={{
             p: 4,
             width: '100%',
-            background: 'rgba(255, 255, 255, 0.08)',
-            backdropFilter: 'blur(20px)',
+            background: 'rgba(255, 255, 255, 0.12)',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
             border: '1px solid rgba(255, 255, 255, 0.15)',
             borderRadius: 2,
           }}

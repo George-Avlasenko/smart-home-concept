@@ -21,7 +21,7 @@ export const theme = createTheme({
     },
     background: {
       default: '#0A0E27', // Темный фон ночного интерьера
-      paper: 'rgba(255, 255, 255, 0.1)', // Прозрачный стеклянный
+      paper: 'rgba(163, 159, 159, 0.64)', // Без backdrop-blur: только альфа
     },
     text: {
       primary: '#FFFFFF',
@@ -75,12 +75,39 @@ export const theme = createTheme({
     borderRadius: 4,
   },
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        'html, body, #root, *': {
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(255,255,255,0.28) transparent',
+        },
+        '*::-webkit-scrollbar': {
+          width: '10px',
+          height: '10px',
+          background: 'transparent',
+        },
+        '*::-webkit-scrollbar-track': {
+          background: 'transparent',
+        },
+        '*::-webkit-scrollbar-thumb': {
+          background: 'rgba(255, 255, 255, 0.28)',
+          borderRadius: '999px',
+          border: '2px solid transparent',
+          backgroundClip: 'content-box',
+        },
+        '*::-webkit-scrollbar-button': {
+          display: 'none',
+          width: 0,
+          height: 0,
+        },
+      },
+    },
     MuiCard: {
       styleOverrides: {
         root: {
-          background: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          background: 'rgba(255, 255, 255, 0.14)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
           borderRadius: 4,
@@ -100,8 +127,9 @@ export const theme = createTheme({
           borderRadius: 4,
           fontWeight: 500,
           padding: '10px 24px',
-          background: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
+          background: 'rgba(255, 255, 255, 0.14)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           color: '#FFFFFF',
           '&:hover': {
@@ -128,9 +156,9 @@ export const theme = createTheme({
     MuiPaper: {
       styleOverrides: {
         root: {
-          background: 'rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          background: 'rgba(255, 255, 255, 0.12)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           color: '#fff',
           border: '1px solid rgba(255, 255, 255, 0.15)',
         },
@@ -139,22 +167,22 @@ export const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          background: 'rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          background: 'rgba(74, 74, 74, 0.92)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           color: '#fff',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
+          border: '1px solid rgba(255, 255, 255, 0.22)',
         },
       },
     },
     MuiMenu: {
       styleOverrides: {
         paper: {
-          background: 'rgba(255, 255, 255, 0.08)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          background: 'rgba(74, 74, 74, 0.92)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           color: '#fff',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
+          border: '1px solid rgba(255, 255, 255, 0.22)',
         },
       },
     },
@@ -175,16 +203,16 @@ export const theme = createTheme({
 // Глобальные стили для glassmorphism
 export const glassmorphismStyles = {
   glass: {
-    background: 'rgba(255, 255, 255, 0.1)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
+    background: 'rgba(255, 255, 255, 0.14)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
     border: '1px solid rgba(255, 255, 255, 0.2)',
     boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
   },
   glassLight: {
-    background: 'rgba(255, 255, 255, 0.05)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
+    background: 'rgba(255, 255, 255, 0.1)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
     border: '1px solid rgba(255, 255, 255, 0.1)',
   },
   glow: {

@@ -118,9 +118,13 @@ public class DevicesController : ControllerBase
                 SerialNumber = d.SerialNumber,
             Type = d.Type,
             Ip = d.Ip != null ? d.Ip.ToString() : null,
+                MacAddress = d.MacAddress,
                 Status = d.Status.ToString(),
                 Settings = settings,
-                CurrentUserPermission = permission
+                CurrentUserPermission = permission,
+                OutdoorTemp = d.Room?.House?.OutdoorTemp,
+                OutdoorHumidity = d.Room?.House?.OutdoorHumidity,
+                OutdoorCo2 = d.Room?.House?.OutdoorCo2
             };
         }).ToList();
 
@@ -269,9 +273,13 @@ public class DevicesController : ControllerBase
             SerialNumber = device.SerialNumber,
             Type = device.Type,
             Ip = device.Ip != null ? device.Ip.ToString() : null,
+            MacAddress = device.MacAddress,
             Status = device.Status.ToString(),
             Settings = settings,
-            CurrentUserPermission = permission
+            CurrentUserPermission = permission,
+            OutdoorTemp = device.Room?.House?.OutdoorTemp,
+            OutdoorHumidity = device.Room?.House?.OutdoorHumidity,
+            OutdoorCo2 = device.Room?.House?.OutdoorCo2
         };
     }
 
@@ -379,11 +387,20 @@ public class DevicesController : ControllerBase
                 DeviceId = device.DeviceId,
                 RoomId = device.RoomId,
                 RoomName = room.RoomName,
+                HouseId = room.HouseId,
+                HouseAddress = room.House?.Address ?? "",
                 Name = device.Name,
                 Manufacturer = device.Manufacturer,
+                SerialNumber = device.SerialNumber,
                 Type = device.Type,
                 Ip = device.Ip?.ToString(),
-                Status = device.Status.ToString()
+                MacAddress = device.MacAddress,
+                Status = device.Status.ToString(),
+                Settings = new Dictionary<string, object>(),
+                CurrentUserPermission = "admin",
+                OutdoorTemp = room.House?.OutdoorTemp,
+                OutdoorHumidity = room.House?.OutdoorHumidity,
+                OutdoorCo2 = room.House?.OutdoorCo2
             });
         }
         catch (Exception ex)
@@ -585,12 +602,30 @@ public class DevicesController : ControllerBase
             ip = device.Ip?.ToString()
         });
 
+        Dictionary<string, object> settings = new();
+        if (!string.IsNullOrEmpty(device.MetaData))
+        {
+            try { settings = JsonSerializer.Deserialize<Dictionary<string, object>>(device.MetaData) ?? new(); } catch { }
+        }
         return Ok(new DeviceDto
         {
             DeviceId = device.DeviceId,
+            RoomId = device.RoomId,
+            RoomName = device.Room.RoomName,
+            HouseId = device.Room.HouseId,
+            HouseAddress = device.Room.House.Address,
             Name = device.Name,
+            Manufacturer = device.Manufacturer,
+            SerialNumber = device.SerialNumber,
             Type = device.Type,
-            // ...
+            Ip = device.Ip?.ToString(),
+            MacAddress = device.MacAddress,
+            Status = device.Status.ToString(),
+            Settings = settings,
+            CurrentUserPermission = "admin",
+            OutdoorTemp = device.Room?.House?.OutdoorTemp,
+            OutdoorHumidity = device.Room?.House?.OutdoorHumidity,
+            OutdoorCo2 = device.Room?.House?.OutdoorCo2
         });
     }
 }

@@ -50,6 +50,16 @@ CREATE TABLE houses (
     address VARCHAR(255) NOT NULL,
     owner_id INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Диапазоны климата (один на дом) и текущие уличные показания (для эмуляции)
+    min_temp DECIMAL(5,2),
+    max_temp DECIMAL(5,2),
+    use_temp_range BOOLEAN DEFAULT FALSE,
+    min_humidity DECIMAL(5,2),
+    max_humidity DECIMAL(5,2),
+    max_co2 DECIMAL(8,2),
+    outdoor_temp DECIMAL(5,2),
+    outdoor_humidity DECIMAL(5,2),
+    outdoor_co2 DECIMAL(8,2),
 
     CONSTRAINT fk_houses_owner 
         FOREIGN KEY (owner_id) 
