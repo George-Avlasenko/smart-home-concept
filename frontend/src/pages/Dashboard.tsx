@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -10,6 +10,7 @@ import {
   FormControlLabel,
   Checkbox,
   IconButton,
+  Collapse,
   FormControl,
   InputLabel,
   Select,
@@ -24,6 +25,8 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import AcUnitIcon from '@mui/icons-material/AcUnit';
 import WindowIcon from '@mui/icons-material/Window';
 import AirIcon from '@mui/icons-material/Air';
@@ -226,6 +229,8 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [houseLightsBrightness, setHouseLightsBrightness] = useState(100);
+  const [houseLightsWarmth, setHouseLightsWarmth] = useState(4200);
+  const [lightsWarmthExpanded, setLightsWarmthExpanded] = useState(false);
   const [intercomOpen, setIntercomOpen] = useState(false);
   const [intercomBusy, setIntercomBusy] = useState(false);
   const intercomVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -472,21 +477,37 @@ export const Dashboard = () => {
   const [houseChartData, setHouseChartData] = useState<HouseSensorSummaryPoint[]>([]);
   const [houseChartLoading, setHouseChartLoading] = useState(false);
 
-  useEffect(() => {
+  const loadHouseChart = useCallback(async (silent = false) => {
     if (!selectedHouseId || houseSensors.length === 0) {
       setHouseChartData([]);
+      if (!silent) setHouseChartLoading(false);
       return;
     }
-    let cancelled = false;
-    setHouseChartLoading(true);
-    api.get<HouseSensorSummaryPoint[]>(`/sensorreadings/house/${selectedHouseId}?days=${houseChartDays}&maxPoints=500`)
-      .then((res) => {
-        if (!cancelled) setHouseChartData(Array.isArray(res.data) ? res.data : []);
-      })
-      .catch(() => { if (!cancelled) setHouseChartData([]); })
-      .finally(() => { if (!cancelled) setHouseChartLoading(false); });
-    return () => { cancelled = true; };
+
+    if (!silent) setHouseChartLoading(true);
+    try {
+      const res = await api.get<HouseSensorSummaryPoint[]>(
+        `/sensorreadings/house/${selectedHouseId}?days=${houseChartDays}&maxPoints=500`
+      );
+      setHouseChartData(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      if (!silent) setHouseChartData([]);
+    } finally {
+      if (!silent) setHouseChartLoading(false);
+    }
   }, [selectedHouseId, houseChartDays, houseSensors.length]);
+
+  useEffect(() => {
+    void loadHouseChart(false);
+  }, [loadHouseChart]);
+
+  useEffect(() => {
+    if (!selectedHouseId || houseSensors.length === 0) return;
+    const timer = setInterval(() => {
+      void loadHouseChart(true);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [selectedHouseId, houseSensors.length, loadHouseChart]);
 
   const houseChartSeries = useMemo(() => {
     const sane = (v: unknown, lo: number, hi: number): number | undefined => {
@@ -502,13 +523,53 @@ export const Dashboard = () => {
     const sorted = [...houseChartData].sort(
       (a, b) => new Date(rec(a)).getTime() - new Date(rec(b)).getTime()
     );
+    const bucketMs = 60 * 1000;
+    const byBucket = new Map<number, { sumT: number; sumH: number; sumC: number; countT: number; countH: number; countC: number }>();
+    sorted.forEach((p) => {
+      const ts = new Date(rec(p)).getTime();
+      if (!Number.isFinite(ts)) return;
+      const key = Math.floor(ts / bucketMs) * bucketMs;
+      const prev = byBucket.get(key) ?? { sumT: 0, sumH: 0, sumC: 0, countT: 0, countH: 0, countC: 0 };
+      const tv = sane(t(p), -30, 60);
+      const hv = sane(h(p), 0, 100);
+      const cv = sane(c(p), 0, 10000);
+      if (tv != null) { prev.sumT += tv; prev.countT += 1; }
+      if (hv != null) { prev.sumH += hv; prev.countH += 1; }
+      if (cv != null) { prev.sumC += cv; prev.countC += 1; }
+      byBucket.set(key, prev);
+    });
+
+    const points = Array.from(byBucket.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([ts, v]) => ({
+        ts,
+        time: new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+        temp: v.countT > 0 ? v.sumT / v.countT : undefined,
+        humidity: v.countH > 0 ? v.sumH / v.countH : undefined,
+        co2: v.countC > 0 ? v.sumC / v.countC : undefined,
+      }));
+
+    // Легкое сглаживание скользящим средним (окно 3 точки), как в графике датчика.
+    const smooth = <T extends number | undefined>(arr: T[], i: number): number | undefined => {
+      let sum = 0;
+      let cnt = 0;
+      for (let k = Math.max(0, i - 1); k <= Math.min(arr.length - 1, i + 1); k += 1) {
+        const v = arr[k];
+        if (v != null) { sum += Number(v); cnt += 1; }
+      }
+      return cnt > 0 ? sum / cnt : undefined;
+    };
+    const tempArr = points.map((p) => p.temp);
+    const humArr = points.map((p) => p.humidity);
+    const co2Arr = points.map((p) => p.co2);
+
     const round1 = (x: number | undefined) => x != null ? Math.round(x * 10) / 10 : undefined;
     const round0 = (x: number | undefined) => x != null ? Math.round(x) : undefined;
-    return sorted.map((p) => ({
-      time: new Date(rec(p)).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
-      temp: round1(sane(t(p), -30, 60)),
-      humidity: round1(sane(h(p), 0, 100)),
-      co2: round0(sane(c(p), 0, 10000)),
+    return points.map((p, i) => ({
+      time: p.time,
+      temp: round1(smooth(tempArr, i)),
+      humidity: round1(smooth(humArr, i)),
+      co2: round0(smooth(co2Arr, i)),
     }));
   }, [houseChartData]);
 
@@ -782,6 +843,34 @@ export const Dashboard = () => {
                         houseLights.forEach(dev => handleSettingsChange(dev.deviceId, { ...dev.settings, brightness: b }));
                       }}
                       valueLabelDisplay="auto" />
+                    <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                        Теплота света: {houseLightsWarmth}K
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() => setLightsWarmthExpanded((p) => !p)}
+                        sx={{ color: 'rgba(255,255,255,0.7)', p: 0.25 }}
+                      >
+                        {lightsWarmthExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </IconButton>
+                    </Box>
+                    <Collapse in={lightsWarmthExpanded} unmountOnExit>
+                      <Slider
+                        size="small"
+                        value={houseLightsWarmth}
+                        min={2700}
+                        max={6500}
+                        step={50}
+                        sx={{ color: '#F08B5C' }}
+                        onChange={(_, v) => {
+                          const k = v as number;
+                          setHouseLightsWarmth(k);
+                          houseLights.forEach(dev => handleSettingsChange(dev.deviceId, { ...dev.settings, colorTempKelvin: k }));
+                        }}
+                        valueLabelDisplay="auto"
+                      />
+                    </Collapse>
                   </Box>
                 ) : (
                   <Box sx={{ p: 2, height: '100%', background: 'rgba(255,255,255,0.06)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -1110,8 +1199,9 @@ export const Dashboard = () => {
                 renderInput={(params) => (
                   <TextField
                     {...params}
+                    id="weather-city-input"
+                    name="weather-city-input"
                     placeholder="Введите город"
-                    label=""
                     size="small"
                     autoFocus
                     onKeyDown={(e) => {
@@ -1161,9 +1251,10 @@ export const Dashboard = () => {
                   <>
                     <Box sx={{ alignSelf: 'flex-start', mb: 1 }}>
                       <FormControl size="small" sx={{ minWidth: 120 }} variant="outlined">
-                        <InputLabel id="dashboard-chart-period-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
+                        <InputLabel id="dashboard-chart-period-empty-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
                         <Select
-                          labelId="dashboard-chart-period-label"
+                          id="dashboard-chart-period-empty-select"
+                          labelId="dashboard-chart-period-empty-label"
                           value={houseChartDays}
                           label="Период"
                           onChange={(e) => setHouseChartDays(Number(e.target.value))}
@@ -1186,8 +1277,8 @@ export const Dashboard = () => {
                   <>
                     <Box sx={{ alignSelf: 'flex-start', mb: 1 }}>
                       <FormControl size="small" sx={{ minWidth: 120 }} variant="outlined">
-                        <InputLabel id="dashboard-chart-period-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
-                        <Select labelId="dashboard-chart-period-label" value={houseChartDays} label="Период" onChange={(e) => setHouseChartDays(Number(e.target.value))} sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                        <InputLabel id="dashboard-chart-period-data-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
+                        <Select id="dashboard-chart-period-data-select" labelId="dashboard-chart-period-data-label" value={houseChartDays} label="Период" onChange={(e) => setHouseChartDays(Number(e.target.value))} sx={{ color: 'rgba(255,255,255,0.9)' }}>
                           <MenuItem value={1}>1 день</MenuItem>
                           <MenuItem value={7}>7 дней</MenuItem>
                           <MenuItem value={30}>30 дней</MenuItem>
@@ -1312,8 +1403,12 @@ export const Dashboard = () => {
                       {houseWindows.length > 0 && (
                         <Box sx={{ mt: 'auto', pt: 1, width: '100%' }}>
                           <FormControl fullWidth size="small">
-                            <InputLabel sx={{ color: 'rgba(255,255,255,0.7)' }}>Режим</InputLabel>
+                            <InputLabel id="dashboard-house-windows-mode-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                              Режим
+                            </InputLabel>
                             <Select
+                              id="dashboard-house-windows-mode-select"
+                              labelId="dashboard-house-windows-mode-label"
                               value={houseWindows.every(d => d.status !== 'active') ? 'closed' : houseWindows.some(d => d.settings?.mode === 'opened') ? 'opened' : 'tilted'}
                               onChange={(e) => setHouseWindowsAll(e.target.value as string)}
                               label="Режим"
@@ -1361,7 +1456,7 @@ export const Dashboard = () => {
                       )}
                     </Box>
                   </Grid>
-                  {/* Вентиляция: вкл/выкл + порог CO₂ или диапазон */}
+                  {/* Вентиляция: вкл/выкл + диапазон CO₂ */}
                   <Grid item xs={12} sm={6} sx={{ display: 'flex' }}>
                     <Box sx={{ p: 1.5, minHeight: 160, flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -1392,28 +1487,20 @@ export const Dashboard = () => {
                                 sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
                               />
                             }
-                            label={<Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>По диапазону ppm</Typography>}
+                            label={<Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>Авто по диапазону CO₂</Typography>}
                           />
-                          {houseVentilation[0]?.settings?.useCo2Range ? (
-                            <>
-                              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
-                                <Slider size="small" value={houseVentilation[0]?.settings?.co2Min ?? 600} min={400} max={1500} step={100} sx={{ color: '#F08B5C', flex: 1 }}
-                                  onChange={(_, v) => houseVentilation.forEach(d => handleSettingsChange(d.deviceId, { ...d.settings, co2Min: v as number }))} valueLabelDisplay="auto" />
-                              </Box>
-                              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
-                                <Slider size="small" value={houseVentilation[0]?.settings?.co2Max ?? 1200} min={800} max={2000} step={100} sx={{ color: '#F08B5C', flex: 1 }}
-                                  onChange={(_, v) => houseVentilation.forEach(d => handleSettingsChange(d.deviceId, { ...d.settings, co2Max: v as number }))} valueLabelDisplay="auto" />
-                              </Box>
-                            </>
-                          ) : (
-                            <>
-                              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>Порог CO₂ ppm</Typography>
-                              <Slider size="small" value={houseVentilation[0]?.settings?.co2Threshold ?? 1000} min={400} max={2000} step={100} sx={{ color: '#F08B5C', mt: 0.5 }}
-                                onChange={(_, v) => houseVentilation.forEach(d => handleSettingsChange(d.deviceId, { ...d.settings, co2Threshold: v as number }))} valueLabelDisplay="auto" />
-                            </>
-                          )}
+                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
+                            <Slider size="small" value={houseVentilation[0]?.settings?.co2Min ?? 600} min={400} max={1500} step={100} sx={{ color: '#F08B5C', flex: 1 }}
+                              disabled={!houseVentilation[0]?.settings?.useCo2Range}
+                              onChange={(_, v) => houseVentilation.forEach(d => handleSettingsChange(d.deviceId, { ...d.settings, co2Min: v as number }))} valueLabelDisplay="auto" />
+                          </Box>
+                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
+                            <Slider size="small" value={houseVentilation[0]?.settings?.co2Max ?? 1200} min={800} max={2000} step={100} sx={{ color: '#F08B5C', flex: 1 }}
+                              disabled={!houseVentilation[0]?.settings?.useCo2Range}
+                              onChange={(_, v) => houseVentilation.forEach(d => handleSettingsChange(d.deviceId, { ...d.settings, co2Max: v as number }))} valueLabelDisplay="auto" />
+                          </Box>
                         </Box>
                       )}
                     </Box>

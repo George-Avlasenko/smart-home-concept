@@ -4,6 +4,8 @@
 -- ============================================
 
 -- Удаление таблиц и типов ENUM если существуют (каскадно)
+DROP TABLE IF EXISTS scenario_group_schedules CASCADE;
+DROP TABLE IF EXISTS scenario_groups CASCADE;
 DROP TABLE IF EXISTS sensor_readings CASCADE;
 DROP TABLE IF EXISTS device_status_history CASCADE;
 DROP TABLE IF EXISTS device_schedules CASCADE;
@@ -69,6 +71,32 @@ CREATE TABLE houses (
 CREATE INDEX idx_houses_owner_id ON houses(owner_id);
 
 -- ============================================
+-- Таблица: scenario_groups (группы сценариев по дому)
+-- ============================================
+CREATE TABLE scenario_groups (
+    group_id SERIAL PRIMARY KEY,
+    house_id INTEGER NOT NULL,
+    name VARCHAR(20) NOT NULL,
+    description VARCHAR(100) NOT NULL DEFAULT '',
+    commands JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_scenario_groups_house FOREIGN KEY (house_id) REFERENCES houses(house_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_scenario_groups_house_id ON scenario_groups(house_id);
+
+CREATE TABLE scenario_group_schedules (
+    schedule_id SERIAL PRIMARY KEY,
+    group_id INTEGER NOT NULL,
+    time TIME NOT NULL,
+    days_of_week VARCHAR(50) NOT NULL,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    last_triggered_at TIMESTAMP,
+    CONSTRAINT fk_scenario_group_schedules_group FOREIGN KEY (group_id) REFERENCES scenario_groups(group_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_scenario_group_schedules_group ON scenario_group_schedules(group_id);
+
+-- ============================================
 -- Таблица: house_users (жильцы дома)
 -- ============================================
 CREATE TABLE house_users (
@@ -106,7 +134,7 @@ CREATE TABLE devices (
     room_id INTEGER NOT NULL,
     name VARCHAR(100) NOT NULL,
     manufacturer VARCHAR(100),
-    serial_number VARCHAR(100),
+    serial_number VARCHAR(255),
     type VARCHAR(50) NOT NULL, -- 'light', 'thermostat', 'camera', 'sensor'
     ip INET,                   -- IP адрес для связи
     mac_address VARCHAR(17),   -- MAC адрес (полезно для идентификации)
@@ -182,6 +210,7 @@ CREATE TABLE device_schedules (
     action_on BOOLEAN NOT NULL,
     action VARCHAR(50), -- Для устройств с несколькими действиями (окна: "closed", "tilted", "opened")
     is_enabled BOOLEAN DEFAULT TRUE,
+    last_triggered_at TIMESTAMP,
 
     CONSTRAINT fk_schedules_device FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
 );

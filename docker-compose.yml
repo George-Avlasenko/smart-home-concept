@@ -25,10 +25,32 @@ services:
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=smarthome;Username=admin;Password=password123
       - ASPNETCORE_ENVIRONMENT=Development
       - TZ=Europe/Moscow
+      - Schedule__TimeZoneId=Europe/Moscow
+      # tuya-service в network_mode: host слушает порт на хосте (см. tuya-service.command)
+      - TuyaService__BaseUrl=http://host.docker.internal:5055
+      # Авто-local key для Tuya LAN (те же ключи, что в IoT Console → Cloud → Authorization)
+      - TuyaCloud__Enabled=${TUYA_CLOUD_ENABLED:-false}
+      - TuyaCloud__AccessId=${TUYA_CLOUD_ACCESS_ID:-}
+      - TuyaCloud__AccessSecret=${TUYA_CLOUD_ACCESS_SECRET:-}
+      - TuyaCloud__Region=${TUYA_CLOUD_REGION:-eu}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5000:8080"
     depends_on:
       - db
+      - tuya-service
+
+  tuya-service:
+    build:
+      context: ./tuya-service
+      dockerfile: Dockerfile
+    container_name: smarthome_tuya
+    network_mode: host
+    environment:
+      - TZ=Europe/Moscow
+    # В host-сети слушаем тот же порт, что и при ручном запуске на машине (см. ИНСТРУКЦИЯ)
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5055"]
 
   frontend:
     build:
@@ -36,10 +58,13 @@ services:
       dockerfile: Dockerfile
     container_name: smarthome_frontend
     # restart: always  # Отключен автозапуск
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5173:80"
     depends_on:
       - backend
+      - tuya-service
 
 volumes:
   postgres_data:

@@ -29,13 +29,28 @@ export enum DeviceStatus {
   Offline = 'offline'
 }
 
+/** Модель из каталога GET /devices/catalog */
+export interface SupportedDeviceProduct {
+  sku: string;
+  displayName: string;
+  manufacturer: string;
+  type: string;
+  suggestedName: string;
+  category: string;
+  features?: string[];
+  tuyaProductLabel?: string;
+}
+
 export interface Device {
   deviceId: number;
   roomId: number;
   roomName: string;
   name: string;
   manufacturer?: string;
-  serialNumber?: string;
+  /** SKU из каталога (дублируется в settings.catalogSku для старых записей). */
+  productSku?: string;
+  /** Уникальный идентификатор экземпляра устройства. */
+  hardwareDeviceId?: string;
   type: string;
   ip?: string;
   status: string; // приходит как строка
@@ -98,4 +113,28 @@ export interface SensorReading {
   value: number;
   unit: string | null;
   recordedAt: string;
+}
+
+export interface ScenarioGroupCommand {
+  deviceId: number;
+  status: string;
+  settings: Record<string, unknown>;
+}
+
+export interface ScenarioGroup {
+  groupId: number;
+  houseId: number;
+  name: string;
+  description: string;
+  commands: ScenarioGroupCommand[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScenarioGroupSchedule {
+  scheduleId: number;
+  groupId: number;
+  time: string;
+  daysOfWeek: number[];
+  isEnabled: boolean;
 }

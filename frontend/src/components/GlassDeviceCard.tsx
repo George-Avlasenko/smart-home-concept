@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, Typography, Switch, Box, IconButton, Tooltip, Slider, FormControl, Select, MenuItem, InputLabel, Checkbox, FormControlLabel, Collapse } from '@mui/material';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Card, CardContent, Typography, Switch, Box, IconButton, Tooltip, Slider, FormControl, Select, MenuItem, InputLabel, Checkbox, FormControlLabel, Collapse, Alert } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { DeviceStatus } from '../types';
@@ -23,27 +23,62 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import { ScheduleDialog } from './ScheduleDialog';
 import { SensorStatsDialog } from './SensorStatsDialog';
 import { useAuth } from '../context/AuthContext';
+import { tuyaApi } from '../api/tuyaClient';
+
+type TuyaColorPending = { h: number; s: number; v: number };
+
+/** Из MetaData после создания устройства; если нет — старые записи: CCT да, RGB нет. */
+function parseLightCapabilities(
+  localSettings: Record<string, any>,
+  settings: Record<string, any>,
+): { cct: boolean; rgb: boolean } {
+  const raw = localSettings?.lightCapabilities ?? settings?.lightCapabilities;
+  if (raw == null || typeof raw !== 'object') {
+    return { cct: true, rgb: false };
+  }
+  const o = raw as Record<string, unknown>;
+  const truthy = (v: unknown) => v === true || v === 'true' || v === 1;
+  return {
+    cct: truthy(o.cct),
+    rgb: truthy(o.rgb),
+  };
+}
 
 interface GlassDeviceCardProps {
   device: Device;
   onToggle: (id: number, status: DeviceStatus) => void;
   onSettingsChange?: (id: number, settings: Record<string, any>) => void;
+  onFrontError?: (message: string) => void;
   size?: 'small' | 'medium' | 'large';
+  /** Компактный режим для списка: без ползунков настроек. */
+  compact?: boolean;
+  /** Клик по карточке (например, открыть отдельное окно деталей). */
+  onOpenDetails?: (device: Device) => void;
   /** Меньший blur для списков — быстрее скролл */
   reducedBlur?: boolean;
   /** Без backdrop-filter: только rgba (страница устройств) */
   alphaGlass?: boolean;
+  /** Скрыть расписание и статистику (режим редактирования сценария/группы) */
+  hideAuxControls?: boolean;
+  /** Только черновик сценария: не слать команды в Tuya-сервис, только обновлять настройки через onSettingsChange */
+  scenarioDraft?: boolean;
 }
 
 const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({ 
   device, 
   onToggle, 
   onSettingsChange,
+  onFrontError,
   size = 'medium',
+  compact = false,
+  onOpenDetails,
   reducedBlur = false,
   alphaGlass = true,
+  hideAuxControls = false,
+  scenarioDraft = false,
 }) => {
   const { user } = useAuth();
+  const isLight = device.type.toLowerCase() === 'light';
   const isActive = device.status.toLowerCase() === 'active';
   const settings = device.settings || {};
   const permission = (device.currentUserPermission || 'viewer').toLowerCase();
@@ -53,14 +88,169 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
   const canManageSchedule = permission === 'admin' || permission === 'user';
   
   const [localSettings, setLocalSettings] = useState(settings);
+  const currentTempDisplay = Number(
+    settings.currentTemp ?? settings.temp ?? localSettings.currentTemp ?? localSettings.temp ?? 21
+  );
+  const productFeatures = Array.isArray(settings.productFeatures) ? settings.productFeatures.map((x: any) => String(x).toUpperCase()) : [];
+  const supportsIonization = device.type.toLowerCase() === 'thermostat' && productFeatures.includes('ION');
   const [openSchedule, setOpenSchedule] = useState(false);
   const [openStats, setOpenStats] = useState(false);
+  const [tuyaError, setTuyaError] = useState('');
+  const setTuyaErrorBoth = useCallback((message: string) => {
+    setTuyaError(message);
+    if (message.trim()) onFrontError?.(message);
+  }, [onFrontError]);
+
   const [settingsExpanded, setSettingsExpanded] = useState<string | null>(null);
-  const toggleSettings = (key: string) => setSettingsExpanded(prev => prev === key ? null : key);
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
+
+  const tuyaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tuyaFlushInFlightRef = useRef(false);
+  const tuyaPendingRef = useRef<{ brightness?: number; kelvin?: number; color?: TuyaColorPending }>({});
+  const tuyaModeRef = useRef<'white' | 'colour'>('white');
+  const tuyaSuppressColorUntilRef = useRef(0);
+  const tuyaWhiteLockRef = useRef(false);
+  const isTuyaLight = !scenarioDraft && isLight && !!(localSettings?.tuya?.enabled || settings?.tuya?.enabled);
+  const lightCaps = isLight ? parseLightCapabilities(localSettings, settings) : { cct: false, rgb: false };
+  const showLightCct = isLight && lightCaps.cct;
+  const showLightRgb = isLight && lightCaps.rgb;
+  const isInteractiveElement = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false;
+    return !!target.closest('button, a, input, textarea, select, [role="button"], [data-no-open-details="true"]');
+  };
+  const getTuyaBasePayload = useCallback(() => {
+    const tuya = (localSettings?.tuya ?? settings?.tuya ?? {}) as Record<string, unknown>;
+    const dpsSwitchParsed = Number.parseInt(String(tuya.dpsSwitch ?? ''), 10);
+    const ipFromTuya = String(tuya.ip ?? '').trim();
+    const ipFromDevice = String(device.ip ?? '').trim();
+    return {
+      device_id: String(tuya.deviceId ?? device.hardwareDeviceId ?? '').trim(),
+      local_key: String(tuya.localKey ?? ''),
+      ip: ipFromTuya || ipFromDevice,
+      version: String(tuya.version ?? '3.5'),
+      dps_switch: Number.isFinite(dpsSwitchParsed) && dpsSwitchParsed > 0 ? dpsSwitchParsed : 20,
+    };
+  }, [localSettings, settings, device.ip, device.hardwareDeviceId]);
+
+  const canSendToTuya = useCallback(() => {
+    const p = getTuyaBasePayload();
+    return p.device_id.length > 0 && p.local_key.length > 0 && p.ip.length > 0;
+  }, [getTuyaBasePayload]);
+
+  const sendTuyaSwitch = useCallback(async (on: boolean) => {
+    if (!canSendToTuya()) {
+      setTuyaErrorBoth('Для управления Tuya нужны Device ID, local key и IP.');
+      return;
+    }
+    try {
+      await tuyaApi.post('/v1/switch', { ...getTuyaBasePayload(), on });
+      setTuyaErrorBoth('');
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const detail = typeof data === 'string'
+        ? data
+        : data?.detail || data?.message || err?.message || `Ошибка управления Tuya (${err?.response?.status ?? 'network'})`;
+      setTuyaErrorBoth(String(detail));
+    }
+  }, [canSendToTuya, getTuyaBasePayload, setTuyaErrorBoth]);
+
+  const flushTuyaPending = useCallback(async () => {
+    tuyaFlushTimerRef.current = null;
+    if (tuyaFlushInFlightRef.current) return;
+    if (!canSendToTuya()) {
+      tuyaPendingRef.current = {};
+      return;
+    }
+    const pending = tuyaPendingRef.current;
+    tuyaPendingRef.current = {};
+    tuyaFlushInFlightRef.current = true;
+    try {
+      if (typeof pending.brightness === 'number') {
+        const safeBrightness = Math.max(1, Math.min(100, Math.round(pending.brightness)));
+        await tuyaApi.post('/v1/brightness', { ...getTuyaBasePayload(), percent: safeBrightness });
+      }
+      if (typeof pending.kelvin === 'number') {
+        await tuyaApi.post('/v1/temperature', { ...getTuyaBasePayload(), kelvin: pending.kelvin });
+      }
+      if (pending.color) {
+        const c = pending.color;
+        await tuyaApi.post('/v1/color', {
+          ...getTuyaBasePayload(),
+          h: c.h,
+          s_percent: c.s,
+          v_percent: c.v,
+        });
+      }
+      setTuyaErrorBoth('');
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const detail = typeof data === 'string'
+        ? data
+        : data?.detail || data?.message || err?.message || `Ошибка управления Tuya (${err?.response?.status ?? 'network'})`;
+      setTuyaErrorBoth(String(detail));
+    } finally {
+      tuyaFlushInFlightRef.current = false;
+      // If something new came while request was in flight, flush again (single-flight queue).
+      if (Object.keys(tuyaPendingRef.current).length > 0 && !tuyaFlushTimerRef.current) {
+        tuyaFlushTimerRef.current = setTimeout(() => {
+          void flushTuyaPending();
+        }, 120);
+      }
+    }
+  }, [canSendToTuya, getTuyaBasePayload, setTuyaErrorBoth]);
+
+  const queueTuyaLiveUpdate = useCallback(
+    (patch: { brightness?: number; kelvin?: number; color?: TuyaColorPending }) => {
+      const now = Date.now();
+      const prev = tuyaPendingRef.current;
+      let next = { ...prev, ...patch };
+
+      // white-mode and colour-mode are mutually exclusive on many Tuya bulbs.
+      if (patch.kelvin !== undefined) {
+        tuyaModeRef.current = 'white';
+        tuyaWhiteLockRef.current = true;
+        tuyaSuppressColorUntilRef.current = now + 1600;
+        next = {
+          brightness: patch.brightness ?? prev.brightness,
+          kelvin: patch.kelvin,
+        };
+      } else if (patch.color !== undefined) {
+        if (tuyaWhiteLockRef.current) return;
+        tuyaModeRef.current = 'colour';
+        tuyaSuppressColorUntilRef.current = 0;
+        next = {
+          color: patch.color,
+        };
+      } else if (tuyaModeRef.current === 'white') {
+        delete next.color;
+      } else if (tuyaModeRef.current === 'colour') {
+        delete next.kelvin;
+      }
+
+      if (tuyaWhiteLockRef.current || tuyaSuppressColorUntilRef.current > now) delete next.color;
+      tuyaPendingRef.current = next;
+      if (tuyaFlushInFlightRef.current) return;
+      if (tuyaFlushTimerRef.current) return;
+      tuyaFlushTimerRef.current = setTimeout(() => {
+        void flushTuyaPending();
+      }, 120);
+    },
+    [flushTuyaPending],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (tuyaFlushTimerRef.current) clearTimeout(tuyaFlushTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    // При смене устройства/настроек не тянем старую ошибку.
+    setTuyaError('');
+  }, [device.deviceId, settings]);
 
   // Отправляем изменения настроек на сервер с задержкой
   useEffect(() => {
@@ -153,10 +343,19 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
         transition: reducedBlur ? 'border-color 0.25s ease' : 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease',
         opacity: device.status === 'offline' ? 0.5 : 1,
         '&:hover': {
-          boxShadow: reducedBlur ? undefined : '0 6px 18px 0 rgba(240, 139, 92, 0.24)',
-          transform: reducedBlur ? 'none' : 'translateY(-4px)',
+          boxShadow: reducedBlur || isLarge ? undefined : '0 6px 18px 0 rgba(240, 139, 92, 0.24)',
+          transform: reducedBlur || isLarge ? 'none' : 'translateY(-4px)',
           border: '1px solid rgba(240, 139, 92, 0.5)',
         },
+        cursor: compact && onOpenDetails ? 'pointer' : 'default',
+      }}
+      onClick={(e) => {
+        if (!compact || !onOpenDetails) return;
+        // Dialogs are rendered via portal; React synthetic click may bubble to this handler
+        // even when user clicks inside the dialog. Ignore anything outside the card DOM.
+        if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
+        if (isInteractiveElement(e.target)) return;
+        onOpenDetails(device);
       }}
     >
       <CardContent sx={{ flexGrow: 1, p: isLarge ? 4 : 2.5, overflow: 'hidden', minHeight: 0 }}>
@@ -205,22 +404,22 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
               maxWidth: '100%',
             }}
           >
-            {canViewStatistics && (
+            {!hideAuxControls && canViewStatistics && (
               <Tooltip title="Статистика">
                 <IconButton 
                   size="small" 
-                  onClick={() => setOpenStats(true)}
+                  onClick={(e) => { e.stopPropagation(); setOpenStats(true); }}
                   sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
                 >
                   <BarChartIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
             )}
-            {canManageSchedule && device.type.toLowerCase() !== 'sensor' && (
+            {!hideAuxControls && canManageSchedule && device.type.toLowerCase() !== 'sensor' && (
               <Tooltip title="Расписание">
                 <IconButton 
                   size="small" 
-                  onClick={() => setOpenSchedule(true)}
+                  onClick={(e) => { e.stopPropagation(); setOpenSchedule(true); }}
                   sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
                 >
                   <AccessTimeIcon fontSize="small" />
@@ -231,6 +430,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
               <Switch
                 checked={isActive}
                 onChange={handleToggle}
+                onClick={(e) => e.stopPropagation()}
                 disabled={device.status === 'offline' || isReadOnly}
                 sx={{
                   '& .MuiSwitch-switchBase.Mui-checked': {
@@ -245,7 +445,41 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
           </Box>
         </Box>
 
+        {!!tuyaError && isLight && !onFrontError && !scenarioDraft && (
+          <Alert
+            severity="error"
+            sx={{
+              mb: 1,
+              py: 0.5,
+              alignItems: 'center',
+              position: 'relative',
+              zIndex: 2,
+              '& .MuiAlert-message': { fontSize: 12, lineHeight: 1.35 },
+            }}
+          >
+            {tuyaError}
+          </Alert>
+        )}
         {/* Дополнительные настройки */}
+        {compact && device.type.toLowerCase() === 'light' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', display: 'block' }}>
+              Яркость: {localSettings.brightness ?? 100}%
+            </Typography>
+            {showLightCct && (
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', display: 'block', mt: 0.4 }}>
+                Теплота света: {localSettings.colorTempKelvin ?? 4200}K
+              </Typography>
+            )}
+            {showLightRgb && (
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', display: 'block', mt: 0.4 }}>
+                Цвет RGB: H {Math.round(Number(localSettings.colorHue ?? 0))}° · S {Math.round(Number(localSettings.colorSat ?? 100))}%
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {!compact && (
         <>
             {device.type.toLowerCase() === 'light' && (
           <Box mt={2}>
@@ -254,8 +488,24 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
             </Typography>
             <Slider 
               value={localSettings.brightness ?? 100} 
-              onChange={(_, val) => handleLocalChange('brightness', val)} 
-              min={0} 
+              onChange={(_, val) => {
+                const brightness = Math.max(1, Math.min(100, Math.round(Number(val))));
+                handleLocalChange('brightness', brightness);
+                if (isTuyaLight) {
+                  if (showLightRgb && tuyaModeRef.current === 'colour') {
+                    queueTuyaLiveUpdate({
+                      color: {
+                        h: Math.round(Number(localSettings.colorHue ?? 0)),
+                        s: Math.round(Number(localSettings.colorSat ?? 100)),
+                        v: brightness,
+                      },
+                    });
+                  } else {
+                    queueTuyaLiveUpdate({ brightness });
+                  }
+                }
+              }} 
+              min={1} 
               max={100} 
               disabled={isReadOnly || device.status === 'offline'}
               size="small"
@@ -266,24 +516,171 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                 },
               }}
             />
+            {showLightCct && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                Теплота света: {localSettings.colorTempKelvin ?? 4200}K
+              </Typography>
+              <Box sx={{ mt: 0.75 }}>
+                <Slider
+                  value={localSettings.colorTempKelvin ?? 4200}
+                  onChange={(_, val) => {
+                    const kelvin = Number(val);
+                    handleLocalChange('colorTempKelvin', kelvin);
+                    if (isTuyaLight) {
+                      tuyaModeRef.current = 'white';
+                      tuyaWhiteLockRef.current = true;
+                      // Hard reset stale color queue before applying warmth.
+                      tuyaPendingRef.current = { kelvin };
+                      queueTuyaLiveUpdate({ kelvin });
+                    }
+                  }}
+                  min={2700}
+                  max={6500}
+                  step={50}
+                  disabled={isReadOnly || device.status === 'offline'}
+                  valueLabelDisplay="auto"
+                  size="small"
+                  sx={{
+                    color: '#F08B5C',
+                    '& .MuiSlider-thumb': {
+                      boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)',
+                    },
+                  }}
+                />
+              </Box>
+            </Box>
+            )}
+            {showLightRgb && (
+            <Box sx={{ mt: showLightCct ? 1.5 : 0.5 }}>
+              <FormControlLabel
+                sx={{
+                  m: 0,
+                  width: '100%',
+                  borderRadius: 1,
+                  px: 0.25,
+                  py: 0.25,
+                  cursor: (isReadOnly || device.status === 'offline') ? 'default' : 'pointer',
+                  '&:hover': {
+                    backgroundColor: (isReadOnly || device.status === 'offline') ? 'transparent' : 'rgba(255,255,255,0.06)',
+                  },
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isReadOnly || device.status === 'offline') return;
+                  const nextExpanded = settingsExpanded !== 'lightRgb';
+                  setSettingsExpanded(nextExpanded ? 'lightRgb' : null);
+                  // Для RGB-only ламп раскрытие RGB-блока сразу фиксирует режим в colour.
+                  if (nextExpanded && isTuyaLight && !showLightCct) {
+                    tuyaModeRef.current = 'colour';
+                    tuyaWhiteLockRef.current = false;
+                    tuyaSuppressColorUntilRef.current = 0;
+                    const v = Math.max(1, Math.min(100, Math.round(Number(localSettings.brightness ?? 100))));
+                    queueTuyaLiveUpdate({
+                      color: {
+                        h: Math.round(Number(localSettings.colorHue ?? 0)),
+                        s: Math.round(Number(localSettings.colorSat ?? 100)),
+                        v,
+                      },
+                    });
+                  }
+                }}
+                control={
+                  <Checkbox
+                    checked={settingsExpanded === 'lightRgb'}
+                    onChange={() => { /* toggle handled by row click */ }}
+                    disabled={isReadOnly || device.status === 'offline'}
+                    sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#7E57C2' }, p: 0.5, mr: 0.25 }}
+                  />
+                }
+                label={
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                    Цвет (RGB): оттенок {Math.round(Number(localSettings.colorHue ?? 0))}° · насыщ. {Math.round(Number(localSettings.colorSat ?? 100))}%
+                  </Typography>
+                }
+              />
+              <Collapse in={settingsExpanded === 'lightRgb'} unmountOnExit>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', display: 'block', mb: 0.5 }}>Оттенок (0–360°)</Typography>
+                  <Slider
+                    value={Number(localSettings.colorHue ?? 0)}
+                    onChange={(_, val) => {
+                      const h = Math.round(Number(val));
+                      handleLocalChange('colorHue', h);
+                      if (isTuyaLight) {
+                        tuyaModeRef.current = 'colour';
+                        tuyaWhiteLockRef.current = false;
+                        const v = Math.max(1, Math.min(100, Math.round(Number(localSettings.brightness ?? 100))));
+                        queueTuyaLiveUpdate({
+                          color: {
+                            h,
+                            s: Math.round(Number(localSettings.colorSat ?? 100)),
+                            v,
+                          },
+                        });
+                      }
+                    }}
+                    min={0}
+                    max={360}
+                    step={1}
+                    disabled={isReadOnly || device.status === 'offline'}
+                    valueLabelDisplay="auto"
+                    size="small"
+                    sx={{
+                      color: '#7E57C2',
+                      '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(126, 87, 194, 0.55)' },
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', display: 'block', mb: 0.5 }}>Насыщенность</Typography>
+                  <Slider
+                    value={Number(localSettings.colorSat ?? 100)}
+                    onChange={(_, val) => {
+                      const s = Math.round(Math.max(0, Math.min(100, Number(val))));
+                      handleLocalChange('colorSat', s);
+                      if (isTuyaLight) {
+                        tuyaModeRef.current = 'colour';
+                        tuyaWhiteLockRef.current = false;
+                        const v = Math.max(1, Math.min(100, Math.round(Number(localSettings.brightness ?? 100))));
+                        queueTuyaLiveUpdate({
+                          color: {
+                            h: Math.round(Number(localSettings.colorHue ?? 0)),
+                            s,
+                            v,
+                          },
+                        });
+                      }
+                    }}
+                    min={0}
+                    max={100}
+                    disabled={isReadOnly || device.status === 'offline'}
+                    valueLabelDisplay="auto"
+                    size="small"
+                    sx={{
+                      color: '#5C6BC0',
+                      '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(92, 107, 192, 0.5)' },
+                    }}
+                  />
+                </Box>
+              </Box>
+              </Collapse>
+            </Box>
+            )}
+
           </Box>
             )}
 
             {device.type.toLowerCase() === 'thermostat' && (
           <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                {localSettings.useTempRange
-                  ? `Диапазон: ${localSettings.minTemp ?? 18}–${localSettings.maxTemp ?? 24}°C`
-                  : `Целевая: ${localSettings.targetTemp ?? 22}°C`}
-                {isActive && ` • Текущая: ${settings.currentTemp ?? 21}°C`}
-              </Typography>
-              <IconButton size="small" onClick={() => toggleSettings('thermostat')} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.25 }}>
-                {settingsExpanded === 'thermostat' ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-              </IconButton>
-            </Box>
-            <Collapse in={settingsExpanded === 'thermostat'} unmountOnExit>
-              <Box sx={{ mt: 1 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
+              {localSettings.useTempRange
+                ? `Диапазон: ${localSettings.minTemp ?? 18}–${localSettings.maxTemp ?? 24}°C`
+                : `Целевая: ${localSettings.targetTemp ?? 22}°C`}
+              {isActive && ` • Текущая: ${Number.isFinite(currentTempDisplay) ? currentTempDisplay : 21}°C`}
+            </Typography>
+            <Box sx={{ mt: 1 }}>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -320,8 +717,21 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                       sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                   </>
                 )}
-              </Box>
-            </Collapse>
+                {supportsIonization && (
+                  <FormControlLabel
+                    sx={{ mt: 0.5 }}
+                    control={
+                      <Checkbox
+                        checked={!!localSettings.ionization}
+                        onChange={(_, checked) => handleLocalChange('ionization', checked)}
+                        disabled={isReadOnly || device.status === 'offline'}
+                        sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#4ECDC4' } }}
+                      />
+                    }
+                    label={<Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>Ионизация</Typography>}
+                  />
+                )}
+            </Box>
           </Box>
         )}
 
@@ -358,9 +768,16 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
 
         {device.type.toLowerCase() === 'window' && (
           <Box mt={2}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
+              Состояние: {localSettings.mode === 'opened' ? 'Открыто' : localSettings.mode === 'tilted' ? 'Проветривание' : 'Закрыто'}
+            </Typography>
             <FormControl fullWidth size="small" disabled={isReadOnly || device.status === 'offline'}>
-              <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Режим</InputLabel>
+              <InputLabel id={`window-mode-label-${device.deviceId}`} sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                Режим
+              </InputLabel>
               <Select
+                id={`window-mode-select-${device.deviceId}`}
+                labelId={`window-mode-label-${device.deviceId}`}
                 value={localSettings.mode || 'closed'}
                 onChange={(e) => {
                   const newMode = e.target.value as string;
@@ -403,8 +820,12 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
         {device.type.toLowerCase() === 'curtain' && (
           <Box mt={2}>
             <FormControl fullWidth size="small" disabled={isReadOnly || device.status === 'offline'}>
-              <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Шторы</InputLabel>
+              <InputLabel id={`curtain-mode-label-${device.deviceId}`} sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                Шторы
+              </InputLabel>
               <Select
+                id={`curtain-mode-select-${device.deviceId}`}
+                labelId={`curtain-mode-label-${device.deviceId}`}
                 value={isActive ? 'opened' : 'closed'}
                 onChange={(e) => {
                   const v = e.target.value as string;
@@ -433,114 +854,84 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
 
         {device.type.toLowerCase() === 'humidifier' && (
           <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                {localSettings.useHumidityRange
-                  ? `Диапазон: ${localSettings.minHumidity ?? 30}–${localSettings.maxHumidity ?? 60}%`
-                  : `Цель: ${localSettings.targetHumidity ?? 50}%`}
-                {' • '}В комнате: {settings.humidity ?? 45}%
-              </Typography>
-              <IconButton size="small" onClick={() => toggleSettings('humidifier')} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.25 }}>
-                {settingsExpanded === 'humidifier' ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-              </IconButton>
-            </Box>
-            <Collapse in={settingsExpanded === 'humidifier'} unmountOnExit>
-              <Box sx={{ mt: 1 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={!!localSettings.useHumidityRange}
-                      onChange={(_, checked) => handleLocalChange('useHumidityRange', checked)}
-                      disabled={isReadOnly || device.status === 'offline'}
-                      sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
-                    />
-                  }
-                  label={<Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>По диапазону (мин–макс)</Typography>}
-                />
-                {localSettings.useHumidityRange ? (
-                  <>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
-                      <Slider size="small" value={localSettings.minHumidity ?? 30} min={20} max={70} step={5}
-                        onChange={(_, v) => handleLocalChange('minHumidity', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
-                        sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
-                      <Slider size="small" value={localSettings.maxHumidity ?? 60} min={30} max={85} step={5}
-                        onChange={(_, v) => handleLocalChange('maxHumidity', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
-                        sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                    </Box>
-                  </>
-                ) : (
-                  <>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mt: 0.5 }}>Целевая влажность %</Typography>
-                    <Slider size="small" value={localSettings.targetHumidity ?? 50} min={30} max={80} step={5}
-                      onChange={(_, v) => handleLocalChange('targetHumidity', v as number)} valueLabelDisplay="auto"
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
+              {localSettings.useHumidityRange
+                ? `Диапазон: ${localSettings.minHumidity ?? 30}–${localSettings.maxHumidity ?? 60}%`
+                : `Цель: ${localSettings.targetHumidity ?? 50}%`}
+              {isActive && ` • Текущая: ${settings.humidity ?? localSettings.humidity ?? 45}%`}
+            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={!!localSettings.useHumidityRange}
+                    onChange={(_, checked) => handleLocalChange('useHumidityRange', checked)}
+                    disabled={isReadOnly || device.status === 'offline'}
+                    sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
+                  />
+                }
+                label={<Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>По диапазону</Typography>}
+              />
+              {localSettings.useHumidityRange ? (
+                <>
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
+                    <Slider size="small" value={localSettings.minHumidity ?? 30} min={20} max={70} step={5}
+                      onChange={(_, v) => handleLocalChange('minHumidity', v as number)} valueLabelDisplay="auto"
                       disabled={isReadOnly || device.status === 'offline'}
                       sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                  </>
-                )}
-              </Box>
-            </Collapse>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
+                    <Slider size="small" value={localSettings.maxHumidity ?? 60} min={30} max={85} step={5}
+                      onChange={(_, v) => handleLocalChange('maxHumidity', v as number)} valueLabelDisplay="auto"
+                      disabled={isReadOnly || device.status === 'offline'}
+                      sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
+                  </Box>
+                </>
+              ) : (
+                <Slider size="small" value={localSettings.targetHumidity ?? 50} min={30} max={80} step={5}
+                  onChange={(_, v) => handleLocalChange('targetHumidity', v as number)} valueLabelDisplay="auto"
+                  disabled={isReadOnly || device.status === 'offline'}
+                  sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' }, mt: 0.5 }} />
+              )}
+            </Box>
           </Box>
         )}
 
         {device.type.toLowerCase() === 'ventilation' && (
           <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                {localSettings.useCo2Range
-                  ? `CO₂: ${localSettings.co2Min ?? 800}–${localSettings.co2Max ?? 1200} ppm`
-                  : `Порог CO₂: ${localSettings.co2Threshold ?? 1000} ppm`}
-              </Typography>
-              <IconButton size="small" onClick={() => toggleSettings('ventilation')} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.25 }}>
-                {settingsExpanded === 'ventilation' ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-              </IconButton>
-            </Box>
-            <Collapse in={settingsExpanded === 'ventilation'} unmountOnExit>
-              <Box sx={{ mt: 1 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={!!localSettings.useCo2Range}
-                      onChange={(_, checked) => handleLocalChange('useCo2Range', checked)}
-                      disabled={isReadOnly || device.status === 'offline'}
-                      sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
-                    />
-                  }
-                  label={<Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>По диапазону (мин–макс ppm)</Typography>}
-                />
-                {localSettings.useCo2Range ? (
-                  <>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
-                      <Slider size="small" value={localSettings.co2Min ?? 600} min={400} max={1500} step={100}
-                        onChange={(_, v) => handleLocalChange('co2Min', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
-                        sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
-                      <Slider size="small" value={localSettings.co2Max ?? 1200} min={800} max={2000} step={100}
-                        onChange={(_, v) => handleLocalChange('co2Max', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
-                        sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                    </Box>
-                  </>
-                ) : (
-                  <>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mt: 0.5 }}>Порог CO₂ (ppm)</Typography>
-                    <Slider size="small" value={localSettings.co2Threshold ?? 1000} min={500} max={2000} step={50}
-                      onChange={(_, v) => handleLocalChange('co2Threshold', v as number)} valueLabelDisplay="auto"
-                      disabled={isReadOnly || device.status === 'offline'}
-                      sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
-                  </>
-                )}
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
+              CO₂ диапазон: {localSettings.co2Min ?? 800}–{localSettings.co2Max ?? 1200} ppm
+              {' • '}Текущий: {settings.co2 ?? settings.coPpm ?? localSettings.co2 ?? '—'} ppm
+            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={!!localSettings.useCo2Range}
+                    onChange={(_, checked) => handleLocalChange('useCo2Range', checked)}
+                    disabled={isReadOnly || device.status === 'offline'}
+                    sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
+                  />
+                }
+                label={<Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>По диапазону</Typography>}
+              />
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
+                <Slider size="small" value={localSettings.co2Min ?? 600} min={400} max={1500} step={100}
+                  onChange={(_, v) => handleLocalChange('co2Min', v as number)} valueLabelDisplay="auto"
+                  disabled={isReadOnly || device.status === 'offline' || !localSettings.useCo2Range}
+                  sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
               </Box>
-            </Collapse>
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
+                <Slider size="small" value={localSettings.co2Max ?? 1200} min={800} max={2000} step={100}
+                  onChange={(_, v) => handleLocalChange('co2Max', v as number)} valueLabelDisplay="auto"
+                  disabled={isReadOnly || device.status === 'offline' || !localSettings.useCo2Range}
+                  sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
+              </Box>
+            </Box>
           </Box>
         )}
 
@@ -604,10 +995,11 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
             </Tooltip>
           </Box>
         )}
-          </>
+        </>
+        )}
       </CardContent>
       
-      {device.type.toLowerCase() !== 'sensor' && openSchedule && (
+      {!hideAuxControls && device.type.toLowerCase() !== 'sensor' && openSchedule && (
         <ScheduleDialog 
           open={openSchedule} 
           onClose={() => setOpenSchedule(false)} 
@@ -617,7 +1009,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
           skipRequest={isGlobalAdmin}
         />
       )}
-      {openStats && (
+      {!hideAuxControls && openStats && (
         <SensorStatsDialog 
           open={openStats} 
           onClose={() => setOpenStats(false)} 

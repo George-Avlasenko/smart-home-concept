@@ -4,6 +4,8 @@ import {
   Typography, 
   CircularProgress, 
   Grid,
+  Dialog,
+  DialogContent,
   useMediaQuery,
 } from '@mui/material';
 import { api } from '../api/client';
@@ -50,6 +52,7 @@ export const AllDevices = () => {
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>('all');
   const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openedDeviceId, setOpenedDeviceId] = useState<number | null>(null);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -208,8 +211,12 @@ export const AllDevices = () => {
     try {
       await api.put(`/devices/${id}/status`, { status: newStatus });
       fetchDevices();
-    } catch (err) {
-      setError('Ошибка при изменении статуса');
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const msg = typeof data === 'string'
+        ? data
+        : data?.detail || data?.message || 'Ошибка при изменении статуса';
+      setError(msg);
       fetchDevices();
     }
   }, [fetchDevices]);
@@ -256,6 +263,11 @@ export const AllDevices = () => {
     }
     return list;
   }, [devices, selectedCategory, selectedHouseId, rooms, selectedRoomIndex, searchQuery]);
+
+  const openedDevice = useMemo(
+    () => filteredDevices.find((d) => d.deviceId === openedDeviceId) ?? null,
+    [filteredDevices, openedDeviceId],
+  );
 
   const devicesByRoom = useMemo(() => {
     if (selectedHouseId === null) return devices;
@@ -425,13 +437,35 @@ export const AllDevices = () => {
                     device={device}
                     onToggle={handleToggleDevice}
                     onSettingsChange={handleSettingsChange}
+                    onFrontError={(msg) => setError(msg)}
                     size="medium"
+                    compact
+                    onOpenDetails={(d) => setOpenedDeviceId(d.deviceId)}
                     reducedBlur
                   />
                 </Grid>
               ))}
             </Grid>
           )}
+          <Dialog
+            open={!!openedDevice}
+            onClose={() => setOpenedDeviceId(null)}
+            fullWidth
+            maxWidth="md"
+            sx={{ '& .MuiDialog-paper': { width: 'min(92vw, 680px)' } }}
+          >
+            <DialogContent sx={{ p: 2 }}>
+              {openedDevice && (
+                <GlassDeviceCard
+                  device={openedDevice}
+                  onToggle={handleToggleDevice}
+                  onSettingsChange={handleSettingsChange}
+                  onFrontError={(msg) => setError(msg)}
+                  size="large"
+                />
+              )}
+            </DialogContent>
+          </Dialog>
         </Box>
       </Box>
     </Box>

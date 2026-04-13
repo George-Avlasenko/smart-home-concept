@@ -22,7 +22,8 @@ import {
   InputLabel,
   Card,
   CardContent,
-  Grid
+  Grid,
+  Stack
 } from '@mui/material';
 import {
   LineChart,
@@ -97,6 +98,13 @@ const readingTypeLabel: Record<string, string> = {
   co2: 'CO₂',
 };
 
+const parseServerDate = (value?: string): Date => {
+  if (!value) return new Date(NaN);
+  // Backend may send UTC timestamps without timezone suffix. Treat them as UTC.
+  const hasZone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasZone ? value : `${value}Z`);
+};
+
 export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
   open,
   onClose,
@@ -106,6 +114,10 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
   skipRequest = false,
 }) => {
   const isSensor = deviceType.toLowerCase() === 'sensor';
+  const sensorPeriodLabelId = `sensor-period-label-${deviceId}`;
+  const sensorPeriodSelectId = `sensor-period-select-${deviceId}`;
+  const statsPeriodLabelId = `stats-period-label-${deviceId}`;
+  const statsPeriodSelectId = `stats-period-select-${deviceId}`;
   const [statistics, setStatistics] = useState<DeviceStatistics | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorReadingRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -208,10 +220,10 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
     if (!isSensor || !sensorReadings.length) return [];
     const byTime = new Map<number, { time: string; timeSort: number; temp?: number; humidity?: number; co2?: number }>();
     sensorReadings.forEach((r) => {
-      const t = new Date(r.recordedAt).getTime();
+      const t = parseServerDate(r.recordedAt).getTime();
       if (!byTime.has(t)) {
         byTime.set(t, {
-          time: new Date(r.recordedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          time: parseServerDate(r.recordedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
           timeSort: t,
         });
       }
@@ -284,6 +296,11 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
           borderBottom: '1px solid rgba(255, 255, 255, 0.15)',
           color: 'rgba(255, 255, 255, 0.9)',
           fontWeight: 600,
+          zIndex: 3,
+        },
+        '& .MuiTableCell-stickyHeader': {
+          background: 'rgba(255, 255, 255, 0.12)',
+          zIndex: 3,
         },
         '& .MuiTableContainer-root': {
           background: 'transparent',
@@ -309,10 +326,11 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
           <Box>
             <Box mb={2} pt={2} display="flex" justifyContent="space-between" alignItems="center">
               <FormControl size="small" sx={{ minWidth: 150 }} variant="outlined">
-                <InputLabel id="sensor-period-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
+                <InputLabel id={sensorPeriodLabelId} sx={{ color: 'rgba(255,255,255,0.7)' }}>Период</InputLabel>
                 <Select
+                  id={sensorPeriodSelectId}
                   value={days}
-                  labelId="sensor-period-label"
+                  labelId={sensorPeriodLabelId}
                   label="Период"
                   onChange={(e) => setDays(Number(e.target.value))}
                   sx={{ color: 'rgba(255,255,255,0.9)', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
@@ -338,10 +356,11 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
           <Box>
             <Box mb={2} pt={2} display="flex" justifyContent="space-between" alignItems="center">
               <FormControl size="small" sx={{ minWidth: 150 }} variant="outlined">
-                <InputLabel id="stats-period-label">Период</InputLabel>
+                <InputLabel id={statsPeriodLabelId}>Период</InputLabel>
                 <Select
+                  id={statsPeriodSelectId}
                   value={days}
-                  labelId="stats-period-label"
+                  labelId={statsPeriodLabelId}
                   label="Период"
                   onChange={(e) => setDays(Number(e.target.value))}
                 >
@@ -396,17 +415,15 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
               </Grid>
             </Grid>
 
+            <Stack direction="row" spacing={2} sx={{ px: 2, py: 1, mb: 1, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.08)' }}>
+              <Typography variant="caption" sx={{ flex: 2, color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>Дата/Время</Typography>
+              <Typography variant="caption" sx={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>Статус</Typography>
+              <Typography variant="caption" sx={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>Длительность</Typography>
+              <Typography variant="caption" sx={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>Причина</Typography>
+              <Typography variant="caption" sx={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontWeight: 700 }}>Пользователь</Typography>
+            </Stack>
             <TableContainer component={Paper} sx={{ maxHeight: 400, bgcolor: 'transparent' }}>
-              <Table stickyHeader size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Дата/Время</TableCell>
-                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Статус</TableCell>
-                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Длительность</TableCell>
-                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Причина</TableCell>
-                    <TableCell sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>Пользователь</TableCell>
-                  </TableRow>
-                </TableHead>
+              <Table size="small">
                 <TableBody>
                   {statistics.events.length === 0 ? (
                     <TableRow>
@@ -417,7 +434,7 @@ export const SensorStatsDialog: React.FC<SensorStatsDialogProps> = ({
                   ) : (
                     statistics.events.map((event) => (
                       <TableRow key={event.historyId}>
-                        <TableCell>{new Date(event.timestamp).toLocaleString('ru-RU')}</TableCell>
+                        <TableCell>{parseServerDate(event.timestamp).toLocaleString('ru-RU')}</TableCell>
                         <TableCell>
                           <Chip 
                             label={getStatusLabel(event.status)} 

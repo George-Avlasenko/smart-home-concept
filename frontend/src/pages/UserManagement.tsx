@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
+  TextField,
   Table,
   TableBody,
   TableCell,
@@ -31,6 +32,7 @@ import type { SystemUser } from '../types';
 export const UserManagement = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -90,6 +92,23 @@ export const UserManagement = () => {
     );
   }
 
+  const q = search.trim().toLowerCase();
+  const visibleUsers = q
+    ? users.filter((u) => {
+        const roleLabel = u.role === 'admin' ? 'администратор' : 'пользователь';
+        const statusLabel = !!u.isBlocked ? 'заблокирован' : (u.isActive ? 'активен' : 'неактивен');
+        return [
+          String(u.userId),
+          u.username ?? '',
+          u.email ?? '',
+          u.fullName ?? '',
+          u.role ?? '',
+          roleLabel,
+          statusLabel,
+        ].some((x) => x.toLowerCase().includes(q));
+      })
+    : users;
+
   return (
     <GlassPage>
       <Typography variant="h4" gutterBottom sx={{ color: '#fff', mb: 2 }}>
@@ -101,6 +120,16 @@ export const UserManagement = () => {
         message={error || successMessage || ''}
         severity={error ? 'error' : 'success'}
         onClose={() => { setError(''); setSuccessMessage(''); }}
+      />
+
+      <TextField
+        fullWidth
+        size="small"
+        label="Поиск пользователей"
+        placeholder="ID, логин, email, ФИО, роль, статус"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        sx={{ mb: 2, maxWidth: 560 }}
       />
 
       {loading ? (
@@ -121,7 +150,7 @@ export const UserManagement = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {users.map((u) => (
+              {visibleUsers.map((u) => (
                 <TableRow key={u.userId}>
                   <TableCell>{u.userId}</TableCell>
                   <TableCell>{u.username}</TableCell>
@@ -144,16 +173,14 @@ export const UserManagement = () => {
                   </TableCell>
                   <TableCell align="right">
                     <Box display="flex" gap={1} justifyContent="flex-end">
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={!Boolean(u.isBlocked)}
-                            onChange={() => handleToggleBlock(u.userId, !!u.isBlocked)}
-                            disabled={u.userId === user?.userId || u.role === 'admin'}
-                            size="small"
-                          />
-                        }
-                        label=""
+                      <Switch
+                        checked={!Boolean(u.isBlocked)}
+                        onChange={() => handleToggleBlock(u.userId, !!u.isBlocked)}
+                        disabled={u.userId === user?.userId || u.role === 'admin'}
+                        size="small"
+                        id={`user-block-switch-${u.userId}`}
+                        name={`user-block-switch-${u.userId}`}
+                        inputProps={{ 'aria-label': `Изменить статус пользователя ${u.username}` }}
                       />
                       <IconButton
                         color="error"
@@ -167,6 +194,15 @@ export const UserManagement = () => {
                   </TableCell>
                 </TableRow>
               ))}
+              {visibleUsers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Ничего не найдено по текущему запросу.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </TableContainer>

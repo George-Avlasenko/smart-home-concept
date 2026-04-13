@@ -27,6 +27,10 @@ public partial class SmartHomeContext : DbContext
 
     public virtual DbSet<HouseUser> HouseUsers { get; set; }
 
+    public virtual DbSet<ScenarioGroup> ScenarioGroups { get; set; }
+
+    public virtual DbSet<ScenarioGroupSchedule> ScenarioGroupSchedules { get; set; }
+
     public virtual DbSet<Log> Logs { get; set; }
 
     public virtual DbSet<Room> Rooms { get; set; }
@@ -93,8 +97,8 @@ public partial class SmartHomeContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("name");
             entity.Property(e => e.RoomId).HasColumnName("room_id");
-            entity.Property(e => e.SerialNumber)
-                .HasMaxLength(100)
+            entity.Property(e => e.HardwareDeviceId)
+                .HasMaxLength(255)
                 .HasColumnName("serial_number");
             entity.Property(e => e.Type)
                 .HasMaxLength(50)
@@ -156,6 +160,7 @@ public partial class SmartHomeContext : DbContext
             entity.Property(e => e.ActionOn).HasColumnName("action_on");
             entity.Property(e => e.Action).HasMaxLength(50).HasColumnName("action");
             entity.Property(e => e.IsEnabled).HasColumnName("is_enabled").HasDefaultValue(true);
+            entity.Property(e => e.LastTriggeredAt).HasColumnName("last_triggered_at");
 
             entity.HasOne(d => d.Device).WithMany(p => p.DeviceSchedules)
                 .HasForeignKey(d => d.DeviceId)
@@ -389,6 +394,56 @@ public partial class SmartHomeContext : DbContext
                 .HasForeignKey(d => d.ChangedByUserId)
                 .HasConstraintName("fk_status_history_user")
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ScenarioGroup>(entity =>
+        {
+            entity.HasKey(e => e.GroupId).HasName("scenario_groups_pkey");
+
+            entity.ToTable("scenario_groups");
+
+            entity.HasIndex(e => e.HouseId, "idx_scenario_groups_house_id");
+
+            entity.Property(e => e.GroupId).HasColumnName("group_id");
+            entity.Property(e => e.HouseId).HasColumnName("house_id");
+            entity.Property(e => e.Name).HasMaxLength(20).HasColumnName("name");
+            entity.Property(e => e.Description).HasMaxLength(100).HasColumnName("description");
+            entity.Property(e => e.CommandsJson)
+                .HasColumnType("jsonb")
+                .HasColumnName("commands")
+                .HasDefaultValueSql("'[]'::jsonb");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.House).WithMany(p => p.ScenarioGroups)
+                .HasForeignKey(d => d.HouseId)
+                .HasConstraintName("fk_scenario_groups_house")
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ScenarioGroupSchedule>(entity =>
+        {
+            entity.HasKey(e => e.ScheduleId).HasName("scenario_group_schedules_pkey");
+            entity.ToTable("scenario_group_schedules");
+            entity.HasIndex(e => e.GroupId, "idx_scenario_group_schedules_group");
+            entity.Property(e => e.ScheduleId).HasColumnName("schedule_id");
+            entity.Property(e => e.GroupId).HasColumnName("group_id");
+            entity.Property(e => e.Time).HasColumnName("time").HasColumnType("time");
+            entity.Property(e => e.DaysOfWeek).HasMaxLength(50).HasColumnName("days_of_week");
+            entity.Property(e => e.IsEnabled).HasColumnName("is_enabled").HasDefaultValue(true);
+            entity.Property(e => e.LastTriggeredAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_triggered_at");
+            entity.HasOne(d => d.Group).WithMany(p => p.Schedules)
+                .HasForeignKey(d => d.GroupId)
+                .HasConstraintName("fk_scenario_group_schedules_group")
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<HouseUser>(entity =>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 
@@ -14,7 +14,8 @@ public partial class Device
 
     public string? Manufacturer { get; set; }
 
-    public string? SerialNumber { get; set; }
+    /// <summary>Уникальный идентификатор экземпляра устройства (наклейка / облако). В БД: serial_number.</summary>
+    public string? HardwareDeviceId { get; set; }
 
     public string Type { get; set; } = null!;
 

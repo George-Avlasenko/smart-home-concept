@@ -107,6 +107,10 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
                   </Box>
               );
           case 'thermostat':
+              const thermostatFeatures = Array.isArray(settings.productFeatures)
+                ? settings.productFeatures.map((x: any) => String(x).toUpperCase())
+                : [];
+              const supportsIonization = thermostatFeatures.includes('ION');
               return (
                   <Box mt={2}>
                       <Typography variant="caption">Целевая температура: {localSettings.targetTemp ?? 22}°C</Typography>
@@ -120,9 +124,23 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
                       />
                       {isActive && (
                           <Box display="flex" justifyContent="space-between" mt={1}>
-                            <Typography variant="caption" color="text.secondary">Текущая: {settings.currentTemp ?? 21}°C</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Текущая: {Number(settings.currentTemp ?? settings.temp ?? localSettings.currentTemp ?? 21)}°C
+                            </Typography>
                             <Typography variant="caption" color="text.secondary">Влажность: {settings.humidity ?? 45}%</Typography>
                           </Box>
+                      )}
+                      {supportsIonization && (
+                          <FormControlLabel
+                              control={
+                                  <Checkbox
+                                      checked={!!localSettings.ionization}
+                                      onChange={(_, checked) => handleLocalChange('ionization', checked)}
+                                      disabled={disabled}
+                                  />
+                              }
+                              label="Ионизация"
+                          />
                       )}
                   </Box>
               );
@@ -188,16 +206,22 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
           case 'sensor':
               return (
                   <Box mt={2}>
-                      <Typography variant="body2">Температура: {settings.temp ?? 24}°C</Typography>
+                      <Typography variant="body2">Температура: {settings.currentTemp ?? settings.temp ?? 24}°C</Typography>
                       <Typography variant="body2">Влажность: {settings.humidity ?? 40}%</Typography>
+                      <Typography variant="body2">CO₂: {settings.co2 ?? settings.coPpm ?? settings.co ?? settings.gas ?? '—'} ppm</Typography>
                   </Box>
               );
           case 'window':
                const mode = localSettings.mode || 'closed';
                return (
                    <Box mt={2}>
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          Состояние: {mode === 'opened' ? 'Открыто' : mode === 'tilted' ? 'Проветривание' : 'Закрыто'}
+                        </Typography>
                         <FormControl fullWidth size="small">
                             <Select
+                                id={`legacy-window-mode-select-${device.deviceId}`}
+                                name={`legacy-window-mode-select-${device.deviceId}`}
                                 value={mode}
                                 onChange={(e) => {
                                     const newMode = e.target.value;
@@ -215,6 +239,30 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
                         </FormControl>
                    </Box>
                );
+          case 'humidifier':
+              return (
+                  <Box mt={2}>
+                      <Typography variant="body2">
+                          {localSettings.useHumidityRange
+                              ? `Диапазон: ${localSettings.minHumidity ?? 30}–${localSettings.maxHumidity ?? 60}%`
+                              : `Цель: ${localSettings.targetHumidity ?? 50}%`}
+                      </Typography>
+                      <Typography variant="body2">
+                          Текущая: {settings.humidity ?? localSettings.humidity ?? 45}%
+                      </Typography>
+                  </Box>
+              );
+          case 'ventilation':
+              return (
+                  <Box mt={2}>
+                      <Typography variant="body2">
+                          CO₂ диапазон: {localSettings.co2Min ?? 800}–{localSettings.co2Max ?? 1200} ppm
+                      </Typography>
+                      <Typography variant="body2">
+                          Текущий CO₂: {settings.co2 ?? settings.coPpm ?? localSettings.co2 ?? '—'} ppm
+                      </Typography>
+                  </Box>
+              );
           default:
               return null;
     }

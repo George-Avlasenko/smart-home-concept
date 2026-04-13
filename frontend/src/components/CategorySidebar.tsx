@@ -26,6 +26,8 @@ interface CategorySidebarProps {
   onCategoryChange: (category: DeviceCategory) => void;
   deviceCounts?: Record<DeviceCategory, number>;
   compact?: boolean; // Иконки только на узких экранах
+  /** Растянуть колонку на высоту родителя (диалог выбора устройств). */
+  stretchColumn?: boolean;
 }
 
 const categories: Array<{
@@ -47,6 +49,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
   onCategoryChange,
   deviceCounts = {},
   compact = false,
+  stretchColumn = false,
 }) => {
   const width = compact ? 72 : 240;
   return (
@@ -55,6 +58,8 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
         width,
         minWidth: width,
         height: '100%',
+        minHeight: stretchColumn ? '100%' : undefined,
+        alignSelf: stretchColumn ? 'stretch' : undefined,
         bgcolor: 'rgba(255, 255, 255, 0.12)',
         borderRight: '1px solid',
         borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -70,7 +75,13 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
         </Box>
       )}
       
-      <List sx={{ flexGrow: 1, pt: 1 }}>
+      <List
+        sx={{
+          flexGrow: stretchColumn ? 0 : 1,
+          flexShrink: 0,
+          pt: 1,
+        }}
+      >
         {categories.filter((category) => {
           const count = deviceCounts[category.id] || 0;
           return category.id === 'all' || count > 0;
@@ -132,6 +143,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
           );
         })}
       </List>
+      {stretchColumn && <Box sx={{ flex: 1, minHeight: 0, width: '100%' }} aria-hidden />}
     </Box>
   );
 };
@@ -159,4 +171,23 @@ export const filterDevicesByCategory = (
     types.includes(device.type.toLowerCase())
   );
 };
+
+/** Сколько устройств попадает в каждую категорию (для боковой панели). */
+export function computeDeviceCategoryCounts(devices: { type: string }[]): Record<DeviceCategory, number> {
+  const ids: DeviceCategory[] = [
+    'all',
+    'lighting',
+    'climate',
+    'security',
+    'appliances',
+    'sensors',
+    'cameras',
+    'other',
+  ];
+  const result = {} as Record<DeviceCategory, number>;
+  for (const id of ids) {
+    result[id] = id === 'all' ? devices.length : filterDevicesByCategory(devices, id).length;
+  }
+  return result;
+}
 

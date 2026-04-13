@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.FileProviders; 
 using Npgsql;
 using SmartHome.API.Models;
+using SmartHome.API.Services;
 
 // Разрешаем сохранять DateTime с Kind=Utc в поля timestamp without time zone
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -49,6 +50,17 @@ builder.Services.AddControllers()
     });
 
 builder.Services.AddHttpClient();
+
+builder.Services.Configure<SmartHome.API.Services.TuyaCloudOptions>(
+    builder.Configuration.GetSection(SmartHome.API.Services.TuyaCloudOptions.SectionName));
+builder.Services.AddSingleton<SmartHome.API.Services.TuyaCloudRuntimeConfig>();
+builder.Services.AddHttpClient(nameof(SmartHome.API.Services.TuyaCloudLocalKeyService), client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(45);
+});
+builder.Services.AddSingleton<SmartHome.API.Services.TuyaCloudLocalKeyService>();
+
+builder.Services.AddSingleton<SmartHome.API.Services.TuyaServiceLocator>();
 
 builder.Services.AddSingleton<SmartHome.API.Services.EventPublisher>(sp =>
 {
@@ -107,6 +119,9 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SmartHomeContext>();
+    var bootLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseSchemaBootstrap");
+    DatabaseSchemaBootstrap.ApplyAsync(db, bootLogger).GetAwaiter().GetResult();
+
     var demoUser = db.Users.AsNoTracking().FirstOrDefault(u => u.Username == "demo");
     if (demoUser == null)
     {

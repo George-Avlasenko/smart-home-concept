@@ -11,7 +11,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true, // Поддержка WebSocket для SSE
-      }
+      },
+      '/tuya': {
+        target: 'http://localhost:5055',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/tuya/, ''),
+      },
     }
   }
 })

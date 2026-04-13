@@ -29,4 +29,6 @@ public partial class House
     public virtual ICollection<Room> Rooms { get; set; } = new List<Room>();
 
     public virtual ICollection<HouseUser> HouseUsers { get; set; } = new List<HouseUser>();
+
+    public virtual ICollection<ScenarioGroup> ScenarioGroups { get; set; } = new List<ScenarioGroup>();
 }

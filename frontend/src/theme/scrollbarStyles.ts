@@ -1,6 +1,5 @@
 import type { SxProps, Theme } from '@mui/material/styles';
 
-/** Единый скролл как на странице устройств: тонкий, без стрелок, полупрозрачный thumb */
 export const scrollbarLikeDevicesSx: SxProps<Theme> = {
   scrollbarWidth: 'thin !important',
   scrollbarColor: 'rgba(255,255,255,0.28) transparent !important',

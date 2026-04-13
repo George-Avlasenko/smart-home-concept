@@ -1,13 +1,18 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, IconButton, Tooltip } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import DevicesIcon from '@mui/icons-material/Devices';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import PersonIcon from '@mui/icons-material/Person';
+import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSelectedHouse } from '../context/SelectedHouseContext';
+import { api } from '../api/client';
+import type { House } from '../types';
 
 interface NavItem {
   icon: React.ReactNode;
@@ -19,13 +24,41 @@ interface NavItem {
 export const GlassNavigation: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { selectedHouseId } = useSelectedHouse();
+  const [houses, setHouses] = useState<House[]>([]);
+
+  useEffect(() => {
+    if (!user) {
+      setHouses([]);
+      return;
+    }
+    void api
+      .get<House[]>('/houses')
+      .then((r) => setHouses(r.data ?? []))
+      .catch(() => setHouses([]));
+  }, [user?.userId]);
+
+  const roleForSelected = useMemo(() => {
+    if (selectedHouseId == null) return null as string | null;
+    return houses.find((h) => h.houseId === selectedHouseId)?.currentUserRole ?? null;
+  }, [houses, selectedHouseId]);
+
+  const showGroupsNav =
+    user?.role === 'admin' ||
+    selectedHouseId == null ||
+    roleForSelected === 'owner' ||
+    roleForSelected === 'admin';
 
   const navItems: NavItem[] = [
     { icon: <HomeIcon />, label: 'Дашборд', path: '/' },
     { icon: <DevicesIcon />, label: 'Все девайсы', path: '/devices' },
+    ...(showGroupsNav ? [{ icon: <GroupWorkIcon />, label: 'Группы', path: '/groups' } as NavItem] : []),
     { icon: <SettingsIcon />, label: 'Управление', path: '/admin/houses' },
     ...(user?.role === 'admin' 
-      ? [{ icon: <PeopleIcon />, label: 'Пользователи', path: '/admin/users' } as NavItem]
+      ? [
+          { icon: <PeopleIcon />, label: 'Пользователи', path: '/admin/users' } as NavItem,
+          { icon: <CloudSyncIcon />, label: 'Интеграции', path: '/admin/integrations' } as NavItem,
+        ]
       : []
     ),
     { icon: <PersonIcon />, label: 'Профиль', path: '/profile' },

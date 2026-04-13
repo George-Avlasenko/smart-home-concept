@@ -31,6 +31,10 @@ namespace SmartHome.API.Models
         [Column("is_enabled")]
         public bool IsEnabled { get; set; } = true;
 
+        /// <summary>Антидребезг: воркер опрашивает каждые ~10 с в ту же минуту.</summary>
+        [Column("last_triggered_at")]
+        public DateTime? LastTriggeredAt { get; set; }
+
         [ForeignKey("DeviceId")]
         public virtual Device Device { get; set; } = null!;
     }

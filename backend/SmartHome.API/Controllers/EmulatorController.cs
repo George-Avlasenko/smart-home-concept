@@ -122,23 +122,34 @@ public class EmulatorController : ControllerBase
         int ipLastOctet = 10;
         foreach (var (roomIndex, type, name) in devicesToCreate)
         {
+            var catalogProduct = DeviceProductCatalog.All.FirstOrDefault(p =>
+                p.Type.Equals(type, StringComparison.OrdinalIgnoreCase));
+            var sku = catalogProduct?.Sku ?? "sh-sensor-01";
+            var meta = new Dictionary<string, object> { ["catalogSku"] = sku };
+            if (type.Equals("light", StringComparison.OrdinalIgnoreCase) && catalogProduct != null)
+                meta["lightCapabilities"] = LightCapabilitiesHelper.FromCatalogFeatures(catalogProduct.Features);
+            if (type == "thermostat")
+            {
+                meta["targetTemp"] = 21.0;
+                meta["mode"] = "cool";
+            }
+            if (type == "window")
+                meta["mode"] = "closed";
+
             var device = new Device
             {
                 RoomId = roomIds[roomIndex],
                 Name = name,
                 Type = type,
-                Manufacturer = "SmartHome Demo",
-                SerialNumber = $"SN-{type}-{house.HouseId}-{ipLastOctet}",
+                Manufacturer = catalogProduct?.Manufacturer ?? "SmartHome Demo",
+                HardwareDeviceId = $"SN-{type}-{house.HouseId}-{ipLastOctet}",
                 Ip = System.Net.IPAddress.Parse($"192.168.1.{ipLastOctet}"),
                 MacAddress = $"02:00:00:00:{ipLastOctet:X2}:{roomIndex:X2}",
                 Status = type == "sensor" ? DeviceStatus.active : DeviceStatus.inactive,
+                MetaData = JsonSerializer.Serialize(meta),
                 CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
             };
             ipLastOctet++;
-            if (type == "thermostat")
-                device.MetaData = JsonSerializer.Serialize(new Dictionary<string, object> { ["targetTemp"] = 21.0, ["mode"] = "cool" });
-            if (type == "window")
-                device.MetaData = JsonSerializer.Serialize(new Dictionary<string, object> { ["mode"] = "closed" });
             _context.Devices.Add(device);
         }
         await _context.SaveChangesAsync();
@@ -453,6 +464,40 @@ public class EmulatorController : ControllerBase
             }
             }
         }
+
+        // Вентиляция: диапазон CO2 — опциональная автофункция.
+        if (ventilation != null && avgCo2.HasValue)
+        {
+            var vMeta = GetOrNewMeta(ventilation.MetaData);
+            var useRange = vMeta.TryGetValue("useCo2Range", out var ur) &&
+                (ur is bool ub && ub || ur?.ToString()?.ToLowerInvariant() == "true");
+            if (!useRange) goto VentilationDone;
+
+            var rangeMin = vMeta.TryGetValue("co2Min", out var vmin) ? Convert.ToDouble(vmin) : 600.0;
+            var rangeMax = vMeta.TryGetValue("co2Max", out var vmax) ? Convert.ToDouble(vmax) : 1200.0;
+            if (rangeMax < rangeMin + 100) rangeMax = rangeMin + 100;
+
+            var currentStatus = ventilation.Status;
+            if (avgCo2.Value > rangeMax)
+            {
+                if (currentStatus != DeviceStatus.active)
+                {
+                    ventilation.Status = DeviceStatus.active;
+                    AddStatusHistory(ventilation.DeviceId, DeviceStatus.active, "system");
+                    await PublishDeviceStatusAndSettings(ventilation);
+                }
+            }
+            else if (avgCo2.Value < rangeMin)
+            {
+                if (currentStatus != DeviceStatus.inactive)
+                {
+                    ventilation.Status = DeviceStatus.inactive;
+                    AddStatusHistory(ventilation.DeviceId, DeviceStatus.inactive, "system");
+                    await PublishDeviceStatusAndSettings(ventilation);
+                }
+            }
+        }
+        VentilationDone:;
 
         // Окна: автозакрытие в дождь — если в карточке включено и влажность на улице >= порога
         var outdoorHum = house.OutdoorHumidity.HasValue ? (double)house.OutdoorHumidity.Value : (double?)null;

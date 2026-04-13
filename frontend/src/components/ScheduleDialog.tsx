@@ -11,6 +11,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import { api } from '../api/client';
+import { dayIndices, dayNameForIndex, getSortedDaysString, ScheduleDayPicker, scheduleDaysHintCaption } from './scheduleShared';
 
 interface Schedule {
     id: number;
@@ -31,9 +32,11 @@ interface ScheduleDialogProps {
     skipRequest?: boolean;
 }
 
-const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']; // Индексы: 1=Пн, 2=Вт, ..., 6=Сб, 0=Вс
-
 export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType, skipRequest = false }: ScheduleDialogProps) => {
+    const addActionLabelId = `action-select-label-${deviceId}`;
+    const addActionSelectId = `action-select-${deviceId}`;
+    const editActionLabelId = `edit-action-select-label-${deviceId}`;
+    const editActionSelectId = `edit-action-select-${deviceId}`;
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [newTime, setNewTime] = useState('08:00');
     // Инициализируем действие в зависимости от типа устройства
@@ -221,23 +224,6 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
         }
     };
 
-    const dayIndices = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun order
-
-    const getSortedDaysString = (days: number[]) => {
-        if (days.length === 7) return "Каждый день";
-        if (days.length === 0) return "Однократно";
-        
-        // Sort: 1-6 then 0 (Mon-Sun)
-        const sorted = [...days].sort((a, b) => {
-            const aVal = a === 0 ? 7 : a;
-            const bVal = b === 0 ? 7 : b;
-            return aVal - bVal;
-        });
-        
-        // Маппинг: 1=Пн->DAYS[0], 2=Вт->DAYS[1], ..., 6=Сб->DAYS[5], 0=Вс->DAYS[6]
-        return sorted.map(d => DAYS[d === 0 ? 6 : d - 1]).join(', ');
-    };
-
     const accessDeniedMessage = 'Расписание устройства видят только владельцы и жильцы этого дома. Так мы сохраняем вашу приватность и комфорт.';
 
     return (
@@ -285,9 +271,10 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                             }}
                         />
                         <FormControl size="small" sx={{ width: 140 }}>
-                            <InputLabel id="action-select-label">Действие</InputLabel>
+                            <InputLabel id={addActionLabelId}>Действие</InputLabel>
                             <Select
-                                labelId="action-select-label"
+                                id={addActionSelectId}
+                                labelId={addActionLabelId}
                                 value={newAction}
                                 label="Действие"
                                 onChange={(e) => {
@@ -316,22 +303,20 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                     </Box>
                     <Box>
                         <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center" mb={0.5}>
-                        {dayIndices.map((idx) => (
-                            <Chip 
-                                key={idx}
-                                label={DAYS[idx === 0 ? 6 : idx - 1]}
-                                onClick={() => handleToggleDay(idx)}
-                                color={selectedDays.includes(idx) ? "primary" : "default"}
-                                variant={selectedDays.includes(idx) ? "filled" : "outlined"}
-                                size="small"
-                                clickable
-                            />
-                        ))}
+                            {dayIndices.map((idx) => (
+                                <Chip
+                                    key={idx}
+                                    label={dayNameForIndex(idx)}
+                                    onClick={() => handleToggleDay(idx)}
+                                    color={selectedDays.includes(idx) ? 'primary' : 'default'}
+                                    variant={selectedDays.includes(idx) ? 'filled' : 'outlined'}
+                                    size="small"
+                                    clickable
+                                />
+                            ))}
                         </Box>
                         <Typography variant="caption" color="text.secondary">
-                            {selectedDays.length === 0 
-                                ? 'Однократное расписание (выполнится один раз в указанное время)' 
-                                : `${selectedDays.length} ${selectedDays.length === 1 ? 'день' : 'дней'} выбрано`}
+                            {scheduleDaysHintCaption(selectedDays.length)}
                         </Typography>
                     </Box>
                 </Box>
@@ -422,9 +407,10 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                     }}
                                 />
                                 <FormControl size="small" sx={{ width: 140 }}>
-                                    <InputLabel id="edit-action-select-label">Действие</InputLabel>
+                                    <InputLabel id={editActionLabelId}>Действие</InputLabel>
                                     <Select
-                                        labelId="edit-action-select-label"
+                                        id={editActionSelectId}
+                                        labelId={editActionLabelId}
                                         value={editAction}
                                         label="Действие"
                                         onChange={(e) => {
@@ -471,31 +457,23 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                 </Typography>
                             </Box>
                             <Box display="flex" gap={2} alignItems="center">
-                                <Box 
-                                    display="flex" 
-                                    gap={1} 
+                                <Box
+                                    display="flex"
+                                    gap={1}
                                     flexWrap="wrap"
                                     p={1.5}
                                     sx={{ bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', width: 'fit-content' }}
                                 >
-                                    {dayIndices.map((idx) => (
-                                        <Chip 
-                                            key={idx}
-                                            label={DAYS[idx === 0 ? 6 : idx - 1]}
-                                            onClick={() => {
-                                                setEditDays(prev => 
-                                                    prev.includes(idx) 
-                                                        ? prev.filter(d => d !== idx) 
-                                                        : [...prev, idx].sort()
-                                                );
-                                            }}
-                                            color={editDays.includes(idx) ? "primary" : "default"}
-                                            variant={editDays.includes(idx) ? "filled" : "outlined"}
-                                            size="medium"
-                                            clickable
-                                            sx={{ fontWeight: editDays.includes(idx) ? 600 : 400, transition: 'all 0.2s', '&:hover': { transform: 'scale(1.05)' } }}
-                                        />
-                                    ))}
+                                    <ScheduleDayPicker
+                                        selectedDays={editDays}
+                                        chipSize="medium"
+                                        chipSx={{ fontWeight: 600, transition: 'all 0.2s', '&:hover': { transform: 'scale(1.05)' } }}
+                                        onToggle={(idx) =>
+                                            setEditDays((prev) =>
+                                                prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx].sort(),
+                                            )
+                                        }
+                                    />
                                 </Box>
                                 <Box sx={{ flexGrow: 1 }} />
                                 <Button 
@@ -508,7 +486,7 @@ export const ScheduleDialog = ({ open, onClose, deviceId, deviceName, deviceType
                                 </Button>
                             </Box>
                             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                {editDays.length === 0 ? 'Однократно (только сегодня)' : `${editDays.length} ${editDays.length === 1 ? 'день' : 'дней'} выбрано`}
+                                {scheduleDaysHintCaption(editDays.length)}
                             </Typography>
                         </Box>
                     </Box>
