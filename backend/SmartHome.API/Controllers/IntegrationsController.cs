@@ -13,7 +13,9 @@ public class IntegrationsController : ControllerBase
     private readonly TuyaCloudRuntimeConfig _tuyaRuntime;
     private readonly TuyaCloudLocalKeyService _tuyaService;
 
-    public IntegrationsController(TuyaCloudRuntimeConfig tuyaRuntime, TuyaCloudLocalKeyService tuyaService)
+    public IntegrationsController(
+        TuyaCloudRuntimeConfig tuyaRuntime,
+        TuyaCloudLocalKeyService tuyaService)
     {
         _tuyaRuntime = tuyaRuntime;
         _tuyaService = tuyaService;

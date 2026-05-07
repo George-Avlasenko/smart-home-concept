@@ -10,11 +10,13 @@ import CleaningServicesIcon from '@mui/icons-material/CleaningServices';
 import WindowIcon from '@mui/icons-material/Window';
 import CurtainsIcon from '@mui/icons-material/Curtains';
 import AllInclusiveIcon from '@mui/icons-material/AllInclusive';
+import BoltIcon from '@mui/icons-material/Bolt';
 
 export type DeviceCategory = 
   | 'all'
   | 'lighting'
   | 'climate'
+  | 'energy'
   | 'security'
   | 'appliances'
   | 'sensors'
@@ -38,11 +40,33 @@ const categories: Array<{
   { id: 'all', label: 'Все устройства', icon: <AllInclusiveIcon /> },
   { id: 'lighting', label: 'Освещение', icon: <LightbulbIcon /> },
   { id: 'climate', label: 'Климат', icon: <ThermostatIcon /> },
+  { id: 'energy', label: 'Энергия', icon: <BoltIcon /> },
   { id: 'security', label: 'Безопасность', icon: <SecurityIcon /> },
   { id: 'appliances', label: 'Бытовая техника', icon: <CoffeeIcon /> },
   { id: 'cameras', label: 'Камеры', icon: <VideocamIcon /> },
   { id: 'other', label: 'Прочее', icon: <PowerSettingsNewIcon /> },
 ];
+
+function classifyDeviceCategory(device: any): DeviceCategory {
+  const type = String(device?.type ?? '').toLowerCase();
+  const sku = String(device?.productSku ?? device?.settings?.catalogSku ?? '').toLowerCase();
+  const name = String(device?.name ?? '').toLowerCase();
+  const energyLike =
+    type === 'outlet' ||
+    sku.startsWith('sh-meter-') ||
+    sku.startsWith('sh-breaker-') ||
+    /\b(meter|breaker|счетчик|счётчик|энерг|газ|вода|автомат)\b/.test(name);
+  const securitySensorLike = /\b(flood|smoke|gas-detector|детектор|затоп|дым)\b/.test(sku);
+
+  if (type === 'light') return 'lighting';
+  if (type === 'camera') return 'cameras';
+  if (type === 'lock' || type === 'window' || securitySensorLike) return 'security';
+  if (energyLike) return 'energy';
+  if (['thermostat', 'humidifier', 'ventilation'].includes(type)) return 'climate';
+  if (type === 'sensor') return 'sensors';
+  if (['kettle', 'vacuum', 'switch'].includes(type)) return 'appliances';
+  return 'other';
+}
 
 export const CategorySidebar: React.FC<CategorySidebarProps> = ({
   selectedCategory,
@@ -155,21 +179,7 @@ export const filterDevicesByCategory = (
 ): any[] => {
   if (category === 'all') return devices;
   
-  const categoryMap: Record<DeviceCategory, string[]> = {
-    all: [],
-    lighting: ['light'],
-    climate: ['thermostat', 'window', 'humidifier', 'ventilation', 'sensor'],
-    security: ['lock'],
-    appliances: ['kettle', 'vacuum', 'outlet', 'switch'],
-    sensors: [],
-    cameras: ['camera'],
-    other: ['curtain'],
-  };
-  
-  const types = categoryMap[category] || [];
-  return devices.filter(device => 
-    types.includes(device.type.toLowerCase())
-  );
+  return devices.filter((device) => classifyDeviceCategory(device) === category);
 };
 
 /** Сколько устройств попадает в каждую категорию (для боковой панели). */
@@ -178,6 +188,7 @@ export function computeDeviceCategoryCounts(devices: { type: string }[]): Record
     'all',
     'lighting',
     'climate',
+    'energy',
     'security',
     'appliances',
     'sensors',

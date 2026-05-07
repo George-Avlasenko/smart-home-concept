@@ -32,6 +32,7 @@ import CleaningServicesIcon from '@mui/icons-material/CleaningServices';
 import CurtainsIcon from '@mui/icons-material/Curtains';
 import OpacityIcon from '@mui/icons-material/Opacity';
 import AirIcon from '@mui/icons-material/Air';
+import { DeskLampIcon, SwitchLeverIcon, isBreakerSwitch, isDeskLamp } from '../components/DeviceIcons';
 import type { Device, House, Room, ScenarioGroup, ScenarioGroupCommand } from '../types';
 import { DeviceStatus } from '../types';
 import { api } from '../api/client';
@@ -101,19 +102,19 @@ function commandsForApi(cmds: ScenarioGroupCommand[]) {
   }));
 }
 
-function deviceMiniIcon(type: string, selected: boolean, iconPx = 22) {
-  const t = type.toLowerCase();
+function deviceMiniIcon(device: Device, selected: boolean, iconPx = 22) {
+  const t = device.type.toLowerCase();
   const color = selected ? '#F08B5C' : 'rgba(255,255,255,0.55)';
   const sx = { color, fontSize: iconPx };
   switch (t) {
     case 'light':
-      return <LightbulbIcon sx={sx} />;
+      return isDeskLamp(device) ? <DeskLampIcon sx={sx} /> : <LightbulbIcon sx={sx} />;
     case 'thermostat':
       return <ThermostatIcon sx={sx} />;
     case 'kettle':
       return <CoffeeIcon sx={sx} />;
     case 'switch':
-      return <PowerSettingsNewIcon sx={sx} />;
+      return isBreakerSwitch(device) ? <PowerSettingsNewIcon sx={sx} /> : <SwitchLeverIcon sx={sx} />;
     case 'outlet':
       return <OutletIcon sx={sx} />;
     case 'vacuum':
@@ -381,7 +382,7 @@ const DevicePickDialog: React.FC<DevicePickDialogProps> = ({
                               minHeight: 36,
                             }}
                           >
-                            {deviceMiniIcon(d.type, on, 28)}
+                            {deviceMiniIcon(d, on, 28)}
                           </Box>
                           <Typography
                             variant="body2"
@@ -504,12 +505,12 @@ export const Groups: React.FC = () => {
   }, [setSelectedHouseId]);
 
   const fetchDevices = useCallback(async () => {
-    try {
-      const res = await api.get<Device[]>('/devices');
-      setDevices(res.data ?? []);
-    } catch {
-      setDevices([]);
-    }
+      try {
+        const res = await api.get<Device[]>('/devices');
+        setDevices(res.data ?? []);
+      } catch {
+        setDevices([]);
+      }
   }, []);
 
   const fetchRooms = useCallback(async (houseId: number) => {
@@ -596,18 +597,23 @@ export const Groups: React.FC = () => {
 
   const persistGroupFromEditor = async () => {
     if (selectedHouseId == null || editingGroupId == null) return;
+    const cleaned = pruneMissingCommands(editCommands);
+    if (cleaned.length === 0) {
+      setToast({ open: true, message: 'В сценарии не осталось доступных устройств', severity: 'error' });
+      return;
+    }
     setSaveBusy(true);
     try {
       await api.put(`/houses/${selectedHouseId}/scenario-groups/${editingGroupId}`, {
         name: editName.trim().slice(0, NAME_MAX),
         description: editDescription.trim().slice(0, DESC_MAX),
-        commands: commandsForApi(editCommands),
+        commands: commandsForApi(cleaned),
       });
       await fetchGroups();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string; detail?: string } } };
       const msg =
-        ax.response?.data?.detail || ax.response?.data?.message || 'Не удалось сохранить группу';
+        ax.response?.data?.detail || ax.response?.data?.message || 'Не удалось сохранить сценарий';
       setToast({ open: true, message: msg, severity: 'error' });
     } finally {
       setSaveBusy(false);
@@ -618,6 +624,16 @@ export const Groups: React.FC = () => {
     setEditCommands((prev) => prev.map((c) => (c.deviceId === deviceId ? { ...c, ...patch } : c)));
   };
 
+  const pruneMissingCommands = useCallback(
+    (cmds: ScenarioGroupCommand[]) => cmds.filter((c) => deviceMap.has(c.deviceId)),
+    [deviceMap],
+  );
+
+  useEffect(() => {
+    if (!editOpen) return;
+    setEditCommands((prev) => prev.filter((c) => deviceMap.has(c.deviceId)));
+  }, [editOpen, deviceMap]);
+
   const handleScenarioToggle = (id: number, st: DeviceStatus) => {
     updateCommand(id, { status: st });
   };
@@ -627,11 +643,16 @@ export const Groups: React.FC = () => {
   };
 
   const applyGroup = async (cmds: ScenarioGroupCommand[]) => {
+    const effective = pruneMissingCommands(cmds);
+    if (effective.length === 0) {
+      setToast({ open: true, message: 'В сценарии не осталось доступных устройств', severity: 'error' });
+      return;
+    }
     setApplyBusy(true);
     setToast((t) => ({ ...t, open: false }));
     try {
       // Сначала настройки в MetaData (Tuya local key и т.д.), затем статус — иначе PUT /status не видит ключи и LAN не сработает.
-      for (const c of cmds) {
+      for (const c of effective) {
         await api.put(`/devices/${c.deviceId}/settings`, { settings: c.settings });
         await api.put(`/devices/${c.deviceId}/status`, { status: c.status });
       }
@@ -651,13 +672,13 @@ export const Groups: React.FC = () => {
 
   const deleteGroup = async () => {
     if (selectedHouseId == null || editingGroupId == null) return;
-    if (!window.confirm('Удалить эту группу?')) return;
+    if (!window.confirm('Удалить этот сценарий?')) return;
     try {
       await api.delete(`/houses/${selectedHouseId}/scenario-groups/${editingGroupId}`);
       setEditOpen(false);
       setEditingGroupId(null);
       await fetchGroups();
-      setToast({ open: true, message: 'Группа удалена', severity: 'success' });
+      setToast({ open: true, message: 'Сценарий удалён', severity: 'success' });
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string; detail?: string } } };
       const msg = ax.response?.data?.detail || ax.response?.data?.message || 'Не удалось удалить';
@@ -747,7 +768,7 @@ export const Groups: React.FC = () => {
       setDraftName('');
       setDraftDescription('');
       await fetchGroups();
-      setToast({ open: true, message: 'Группа создана', severity: 'success' });
+      setToast({ open: true, message: 'Сценарий создан', severity: 'success' });
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string; detail?: string } } };
       const msg = ax.response?.data?.detail || ax.response?.data?.message || 'Не удалось создать';
@@ -802,44 +823,44 @@ export const Groups: React.FC = () => {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, mb: 1, flexWrap: 'wrap' }}>
         <Box sx={{ flex: '1 1 280px', minWidth: 0 }}>
           <Typography variant="h4" sx={{ mb: 0.5, color: '#F08B5C', fontWeight: 600 }}>
-            Группы
-          </Typography>
+        Сценарии
+      </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', maxWidth: 720 }}>
-            Группа — набор команд для устройств. В редакторе настройте состояние каждого устройства; кнопка «Применить»
+            Сценарий — набор команд для устройств. В редакторе настройте состояние каждого устройства; кнопка «Применить»
             выполнит все команды подряд.
-          </Typography>
+      </Typography>
         </Box>
         {selectedHouseId != null && canManageGroups && (
           <Button variant="contained" sx={{ flexShrink: 0, mt: 0.5 }} onClick={startCreate}>
-            Создать группу
+            Создать сценарий
           </Button>
         )}
       </Box>
 
       {selectedHouseId == null ? (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Выберите дом на главной, чтобы видеть и создавать группы для этого дома.
+          Выберите дом на главной, чтобы видеть и создавать сценарии для этого дома.
         </Alert>
       ) : forbidden || !canManageGroups ? (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Раздел «Группы» доступен только владельцу дома и совладельцу.
+          Раздел «Сценарии» доступен только владельцу дома и совладельцу.
         </Alert>
       ) : (
         <>
           <Typography variant="h6" sx={{ mb: 1.5, color: '#fff' }}>
-            Созданные группы
-          </Typography>
+          Созданные сценарии
+        </Typography>
           {groupsLoading ? (
             <Box display="flex" justifyContent="center" py={4}>
               <CircularProgress size={32} sx={{ color: '#F08B5C' }} />
             </Box>
           ) : groups.length === 0 ? (
             <Alert severity="info" sx={{ mb: 3, bgcolor: 'rgba(25,118,210,0.15)' }}>
-              Групп пока нет. Нажмите «Создать группу» справа сверху.
+              Сценариев пока нет. Нажмите «Создать сценарий» справа сверху.
             </Alert>
           ) : (
             <Grid container spacing={2} sx={{ mb: 2, justifyContent: 'flex-start' }}>
-              {groups.map((g) => (
+            {groups.map((g) => (
                 <Grid
                   item
                   xs={12}
@@ -878,8 +899,8 @@ export const Groups: React.FC = () => {
                               variant="subtitle1"
                               sx={{ fontWeight: 600, color: '#fff', lineHeight: 1.3, wordBreak: 'break-word' }}
                             >
-                              {g.name}
-                            </Typography>
+                        {g.name}
+                      </Typography>
                             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)', display: 'block', mt: 0.5 }}>
                               Устройств: {g.commands.length}
                             </Typography>
@@ -912,7 +933,7 @@ export const Groups: React.FC = () => {
       <DevicePickDialog
         key={`create-pick-${createPickKey}`}
         open={createPickOpen}
-        title="Выберите устройства для новой группы"
+        title="Выберите устройства для нового сценария"
         devices={houseDevices}
         rooms={rooms}
         initialSelected={createSelectedIds}
@@ -969,7 +990,7 @@ export const Groups: React.FC = () => {
       </Dialog>
 
       <Dialog open={createMetaOpen} onClose={() => setCreateMetaOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Новая группа</DialogTitle>
+        <DialogTitle>Новый сценарий</DialogTitle>
         <DialogContent>
           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mb: 2 }}>
             Выбрано устройств: {createSelectedIds.length}
@@ -1042,11 +1063,11 @@ export const Groups: React.FC = () => {
               >
                 <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)', display: 'block', mb: 0.25 }}>
-                    Редактирование группы
+                    Редактирование сценария
                   </Typography>
                   <Typography variant="h6" sx={{ fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {editName.trim() || editingGroup.name}
-                  </Typography>
+          </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'flex-end', flexShrink: 0 }}>
                   <Button
@@ -1066,9 +1087,9 @@ export const Groups: React.FC = () => {
                     onClick={() => void applyGroup(editCommands)}
                   >
                     Применить сценарий
-                  </Button>
-                </Box>
-              </Box>
+          </Button>
+        </Box>
+      </Box>
             </DialogTitle>
             <DialogContent
               dividers
@@ -1091,13 +1112,7 @@ export const Groups: React.FC = () => {
               <Grid container spacing={3}>
                 {editCommands.map((cmd) => {
                   const base = deviceMap.get(cmd.deviceId);
-                  if (!base) {
-                    return (
-                      <Grid item xs={12} sm={6} md={4} key={cmd.deviceId}>
-                        <Alert severity="warning">Устройство #{cmd.deviceId} не найдено</Alert>
-                      </Grid>
-                    );
-                  }
+                  if (!base) return null;
                   const dev = buildScenarioDevice(base, cmd);
                   return (
                     <Grid
@@ -1128,7 +1143,7 @@ export const Groups: React.FC = () => {
             </DialogContent>
             <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, flexShrink: 0 }}>
               <Button color="error" variant="outlined" onClick={() => void deleteGroup()}>
-                Удалить группу
+                Удалить сценарий
               </Button>
               <Button onClick={() => void closeEditor()} disabled={saveBusy}>
                 {saveBusy ? <CircularProgress size={20} /> : 'Закрыть'}

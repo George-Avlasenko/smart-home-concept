@@ -13,7 +13,7 @@ import { DeviceStatus } from '../types';
 import type { Device, House, Room } from '../types';
 import { GlassDeviceCard } from '../components/GlassDeviceCard';
 import { Toast } from '../components/Toast';
-import { CategorySidebar, DeviceCategory, filterDevicesByCategory } from '../components/CategorySidebar';
+import { CategorySidebar, DeviceCategory, filterDevicesByCategory, computeDeviceCategoryCounts } from '../components/CategorySidebar';
 import { GlassTopBar } from '../components/GlassTopBar';
 import { useSSE } from '../hooks/useSSE';
 import { useSelectedHouse } from '../context/SelectedHouseContext';
@@ -280,30 +280,7 @@ export const AllDevices = () => {
   }, [devices, selectedHouseId, rooms, selectedRoomIndex]);
 
   const deviceCounts = useMemo(() => {
-    const counts: Record<DeviceCategory, number> = {
-      all: 0,
-      lighting: 0,
-      climate: 0,
-      security: 0,
-      appliances: 0,
-      sensors: 0,
-      cameras: 0,
-      other: 0,
-    };
-    
-    devicesByRoom.forEach(device => {
-      const type = device.type.toLowerCase();
-      counts.all++;
-      
-      if (['light'].includes(type)) counts.lighting++;
-      else if (['thermostat', 'window', 'humidifier', 'ventilation', 'sensor'].includes(type)) counts.climate++;
-      else if (['lock'].includes(type)) counts.security++;
-      else if (['kettle', 'vacuum', 'outlet', 'switch'].includes(type)) counts.appliances++;
-      else if (['camera'].includes(type)) counts.cameras++;
-      else counts.other++;
-    });
-    
-    return counts;
+    return computeDeviceCategoryCounts(devicesByRoom as any);
   }, [devicesByRoom]);
 
   if (loading) {

@@ -20,6 +20,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import { ScheduleDialog } from './ScheduleDialog';
 import { SensorStatsDialog } from './SensorStatsDialog';
+import { DeskLampIcon, SwitchLeverIcon, isBreakerSwitch, isDeskLamp } from './DeviceIcons';
 
 interface DeviceCardProps {
   device: Device;
@@ -73,10 +74,16 @@ export const DeviceCard = ({ device, onToggle, onSettingsChange }: DeviceCardPro
   const getIcon = () => {
     const type = device.type.toLowerCase();
     switch (type) {
-      case 'light': return <LightbulbIcon fontSize="large" color={isActive ? 'warning' : 'disabled'} />;
+      case 'light':
+        return isDeskLamp(device)
+          ? <DeskLampIcon fontSize="large" color={isActive ? 'warning' : 'disabled'} />
+          : <LightbulbIcon fontSize="large" color={isActive ? 'warning' : 'disabled'} />;
       case 'thermostat': return <ThermostatIcon fontSize="large" color={isActive ? 'error' : 'disabled'} />;
       case 'kettle': return <CoffeeIcon fontSize="large" color={isActive ? 'warning' : 'disabled'} />;
-      case 'switch': return <PowerSettingsNewIcon fontSize="large" color={isActive ? 'success' : 'disabled'} />;
+      case 'switch':
+        return isBreakerSwitch(device)
+          ? <PowerSettingsNewIcon fontSize="large" color={isActive ? 'success' : 'disabled'} />
+          : <SwitchLeverIcon fontSize="large" color={isActive ? 'success' : 'disabled'} />;
       case 'outlet': return <OutletIcon fontSize="large" color={isActive ? 'success' : 'disabled'} />;
       case 'vacuum': return <CleaningServicesIcon fontSize="large" color={isActive ? 'primary' : 'disabled'} />;
       case 'curtain': return <CurtainsIcon fontSize="large" color={isActive ? 'primary' : 'disabled'} />;

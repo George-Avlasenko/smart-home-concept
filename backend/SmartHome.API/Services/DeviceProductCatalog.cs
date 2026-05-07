@@ -15,7 +15,8 @@ public static class DeviceProductCatalog
         IReadOnlyList<string>? Features = null,
         string? TuyaProductLabel = null,
         IReadOnlyList<string>? TuyaProductIds = null,
-        IReadOnlyList<string>? TuyaProductNameHints = null);
+        IReadOnlyList<string>? TuyaProductNameHints = null,
+        IReadOnlyList<string>? TuyaProductKeys = null);
 
     public static readonly IReadOnlyList<Product> All = new List<Product>
     {
@@ -32,7 +33,8 @@ public static class DeviceProductCatalog
             TuyaProductNameHints: ["cct bulb", "white bulb", "led bulb"]),
         new("sh-bulb-wifi-rgb", "Светодиодная лампа Wi-Fi RGB+CCT", "Tuya", "light", "Лампа RGB", "Освещение", ["Wi-Fi", "RGB", "CCT"], "Tuya LED BULB W509Z2",
             TuyaProductIds: ["n9apqaagw8z2ktkx"],
-            TuyaProductNameHints: ["led bulb w509z2", "w509z2", "led bulb"]),
+            TuyaProductNameHints: ["led bulb w509z2", "w509z2", "led bulb"],
+            TuyaProductKeys: ["keyndnn7n7jamtxj"]),
         new("sh-bulb-blewifi-rgb", "Лампа BLE + Wi-Fi RGB", "Tuya", "light", "Лампа", "Освещение", ["BLE+Wi-Fi", "RGB"], "Tuya BLE+WIFI RGB BULB BLW-RGB"),
         new("sh-bulb-zigbee-cct", "Лампа Zigbee CCT", "Tuya", "light", "Лампа Zigbee", "Освещение", ["Zigbee", "CCT"], "Tuya ZIGBEE CCT BULB ZB-CCT-01"),
         new("sh-bulb-ble-cct", "Лампа Bluetooth CCT", "Tuya", "light", "Лампа BLE", "Освещение", ["BLE", "CCT"], "Tuya BLE CCT BULB BLE-CCT-01"),
@@ -62,6 +64,9 @@ public static class DeviceProductCatalog
         // Питание / быт
         new("sh-switch-01", "Настенный выключатель Wi-Fi", "Tuya", "switch", "Выключатель", "Бытовая техника", ["Wi-Fi"], "Tuya WALL SWITCH SW-WF-01"),
         new("sh-outlet-01", "Умная розетка Wi-Fi", "Gosund", "outlet", "Розетка", "Бытовая техника", ["Wi-Fi"], "Gosund SOCKET GS-SP1"),
+        new("sh-outlet-tuya-01", "Умная розетка Tuya Wi‑Fi", "Tuya", "outlet", "Розетка", "Бытовая техника", ["Wi-Fi", "Энергомониторинг"], "Tuya Smart Plug",
+            TuyaProductNameHints: ["smart plug", "wifi smart plug", "socket", "outlet", "plug"],
+            TuyaProductKeys: ["keyge8wsy99n5pr7"]),
         new("sh-kettle-01", "Умный чайник Wi-Fi", "Xiaomi", "kettle", "Чайник", "Бытовая техника", ["Wi-Fi"], "Xiaomi KETTLE XM-KTL01"),
         new("sh-vacuum-01", "Робот-пылесос с приложением", "Roborock", "vacuum", "Пылесос", "Бытовая техника", ["Wi-Fi"], "Roborock VACUUM RR-S7"),
 
@@ -137,6 +142,26 @@ public static class DeviceProductCatalog
             if (byExactName != null) return byExactName;
         }
 
+        return null;
+    }
+
+    public static Product? TryMatchTuyaLan(string? tuyaProductKey)
+    {
+        if (string.IsNullOrWhiteSpace(tuyaProductKey)) return null;
+        var key = tuyaProductKey.Trim();
+        return All.FirstOrDefault(p =>
+            p.TuyaProductKeys != null &&
+            p.TuyaProductKeys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>Базовая модель Tuya по типу, если точный product_name/product_id не сопоставился.</summary>
+    public static Product? TryGetTuyaDefaultByType(string? type)
+    {
+        var t = (type ?? "").Trim().ToLowerInvariant();
+        if (t == "light")
+            return TryGet("sh-light-tuya-01");
+        if (t == "outlet")
+            return TryGet("sh-outlet-tuya-01");
         return null;
     }
 }

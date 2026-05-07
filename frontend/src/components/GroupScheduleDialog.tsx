@@ -76,9 +76,9 @@ export const GroupScheduleDialog: React.FC<Props> = ({ open, onClose, houseId, g
           ? String((d as { detail?: string }).detail || (d as { message?: string }).message)
           : null) ||
         (ax.response?.status === 403
-          ? 'Нет прав на расписание группы'
+          ? 'Нет прав на расписание сценария'
           : ax.response?.status === 404
-            ? 'Группа или расписание не найдены'
+            ? 'Сценарий или расписание не найдены'
             : null) ||
         'Не удалось добавить расписание';
       window.alert(msg);
@@ -142,7 +142,7 @@ export const GroupScheduleDialog: React.FC<Props> = ({ open, onClose, houseId, g
       <DialogTitle>Расписание: {groupName}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
-          В указанное время применяется сохранённый сценарий группы (как кнопка «Применить сценарий»).
+          В указанное время применяется сохранённый сценарий (как кнопка «Применить сценарий»).
         </Typography>
 
         <Box mb={3} mt={1} p={2} bgcolor="background.paper" borderRadius={2} border={1} borderColor="divider">
@@ -163,7 +163,7 @@ export const GroupScheduleDialog: React.FC<Props> = ({ open, onClose, houseId, g
                 '& input': { padding: '8.5px 14px' },
               }}
             />
-            <Chip label="Сценарий группы" color="info" size="medium" variant="outlined" sx={{ height: 36, alignSelf: 'center' }} />
+            <Chip label="Сценарий" color="info" size="medium" variant="outlined" sx={{ height: 36, alignSelf: 'center' }} />
             <Button variant="contained" onClick={() => void handleAdd()} disabled={busy}>
               Добавить
             </Button>
@@ -289,7 +289,7 @@ export const GroupScheduleDialog: React.FC<Props> = ({ open, onClose, houseId, g
 
             <Box display="flex" alignItems="center" gap={1} sx={{ color: 'text.secondary' }}>
               <EventNoteIcon fontSize="small" />
-              <Typography variant="caption">Действие всегда: применить сценарий группы</Typography>
+              <Typography variant="caption">Действие всегда: применить сценарий</Typography>
             </Box>
           </Box>
         </DialogContent>

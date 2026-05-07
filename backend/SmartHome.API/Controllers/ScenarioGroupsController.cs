@@ -128,10 +128,30 @@ public class ScenarioGroupsController : ControllerBase
             return Forbid();
 
         var list = await _context.ScenarioGroups
-            .AsNoTracking()
             .Where(g => g.HouseId == houseId)
             .OrderByDescending(g => g.UpdatedAt)
             .ToListAsync(ct);
+
+        var validIds = await _context.Devices
+            .AsNoTracking()
+            .Include(d => d.Room)
+            .Where(d => d.Room != null && d.Room.HouseId == houseId)
+            .Select(d => d.DeviceId)
+            .ToListAsync(ct);
+        var validSet = validIds.ToHashSet();
+        var sanitized = false;
+        foreach (var g in list)
+        {
+            var cmds = ParseCommandsJson(g.CommandsJson);
+            if (cmds.Count == 0) continue;
+            var filtered = cmds.Where(c => validSet.Contains(c.DeviceId)).ToList();
+            if (filtered.Count == cmds.Count) continue;
+            g.CommandsJson = SerializeCommands(filtered);
+            g.UpdatedAt = DateTime.UtcNow;
+            sanitized = true;
+        }
+        if (sanitized)
+            await _context.SaveChangesAsync(ct);
 
         return Ok(list.Select(ToDto));
     }

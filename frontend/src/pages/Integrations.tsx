@@ -158,16 +158,8 @@ export const Integrations: React.FC = () => {
   return (
     <GlassPage>
       <Typography variant="h4" sx={{ color: '#fff', mb: 2 }}>Интеграции</Typography>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', mb: 1 }}>
-        Настройка Tuya Cloud для авто-получения local key и управления лампами без ручного ключа.
-      </Typography>
-      <Typography variant="caption" component="div" sx={{ color: 'rgba(255,255,255,0.45)', mb: 2, lineHeight: 1.5 }}>
-        Черновик в браузере: ключ <Box component="span" sx={{ fontFamily: 'ui-monospace, monospace' }}>tuyaCloudForm.v1</Box> —
-        поля <Box component="span" sx={{ fontFamily: 'ui-monospace, monospace' }}>enabled</Box>,{' '}
-        <Box component="span" sx={{ fontFamily: 'ui-monospace, monospace' }}>accessId</Box>,{' '}
-        <Box component="span" sx={{ fontFamily: 'ui-monospace, monospace' }}>accessSecret</Box>,{' '}
-        <Box component="span" sx={{ fontFamily: 'ui-monospace, monospace' }}>region</Box> (обновляются при вводе и при «Сохранить»).
-        С сервера по-прежнему приходят только признаки вроде isConfigured / hasAccessSecret — их в localStorage не кладём.
+      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', mb: 2 }}>
+        Настройка Tuya Cloud для авто-получения local key и управления устройствами без ручного ввода локального ключа.
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

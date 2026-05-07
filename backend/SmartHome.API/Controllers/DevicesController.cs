@@ -36,7 +36,9 @@ public class DevicesController : ControllerBase
         if (c is "sp" or "ipc") return "camera";
         if (c.Contains("lock")) return "lock";
         if (c.Contains("switch")) return "switch";
+        if (c is "kg") return "switch";
         if (c.Contains("socket") || c.Contains("outlet")) return "outlet";
+        if (c is "cz" or "pc") return "outlet";
         if (c.Contains("kettle")) return "kettle";
         if (c.Contains("curtain")) return "curtain";
         if (c.Contains("sensor")) return "sensor";
@@ -63,6 +65,28 @@ public class DevicesController : ControllerBase
         var parsed = DeviceMetaHelper.ParseToNestedObjects(meta);
         return parsed.Count > 0 ? parsed : fallback;
     }
+
+    private static readonly JsonSerializerOptions ScenarioJsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private static List<ScenarioGroupCommandDto> ParseScenarioCommands(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<ScenarioGroupCommandDto>();
+        try
+        {
+            return JsonSerializer.Deserialize<List<ScenarioGroupCommandDto>>(json, ScenarioJsonOpts) ?? new List<ScenarioGroupCommandDto>();
+        }
+        catch
+        {
+            return new List<ScenarioGroupCommandDto>();
+        }
+    }
+
+    private static string SerializeScenarioCommands(IReadOnlyList<ScenarioGroupCommandDto> commands)
+        => JsonSerializer.Serialize(commands, ScenarioJsonOpts);
 
     /// <summary>Держим settings.tuya.ip / deviceId в соответствии с колонками устройства (карточка читает IP из tuya).</summary>
     private static void SyncTuyaBlockWithDeviceRow(Device device)
@@ -144,7 +168,14 @@ public class DevicesController : ControllerBase
     /// </summary>
     private async Task<string?> TrySendTuyaSwitchAsync(Device device, DeviceStatus targetStatus, CancellationToken ct)
     {
-        if (!string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase))
+        // Виртуальные устройства не требуют Tuya LAN/localKey.
+        if (!string.IsNullOrWhiteSpace(device.HardwareDeviceId) &&
+            device.HardwareDeviceId.StartsWith("VIRTUAL-", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(device.Type, "outlet", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(device.Type, "switch", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var settings = DeviceMetaHelper.ParseToNestedObjects(device.MetaData);
@@ -157,7 +188,7 @@ public class DevicesController : ControllerBase
                 ["deviceId"] = device.HardwareDeviceId ?? "",
                 ["ip"] = device.Ip?.ToString() ?? "",
                 ["version"] = "3.5",
-                ["dpsSwitch"] = 20
+                ["dpsSwitch"] = string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase) ? 20 : 1
             };
             settings["tuya"] = tuyaDict;
             tuyaRaw = tuyaDict;
@@ -201,7 +232,7 @@ public class DevicesController : ControllerBase
             var version = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())
                 ? v.GetString()!
                 : "3.5";
-            var dpsSwitch = 20;
+            var dpsSwitch = string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase) ? 20 : 1;
             if (root.TryGetProperty("dpsSwitch", out var ds))
             {
                 if (ds.ValueKind == JsonValueKind.Number && ds.TryGetInt32(out var n)) dpsSwitch = n;
@@ -216,7 +247,7 @@ public class DevicesController : ControllerBase
             if (!tuyaDict.TryGetValue("version", out var verObj) || string.IsNullOrWhiteSpace(verObj?.ToString()))
                 tuyaDict["version"] = version;
             if (!tuyaDict.TryGetValue("dpsSwitch", out var dpsObj) || !int.TryParse(dpsObj?.ToString(), out var parsedDps) || parsedDps <= 0)
-                tuyaDict["dpsSwitch"] = dpsSwitch > 0 ? dpsSwitch : 20;
+                tuyaDict["dpsSwitch"] = dpsSwitch > 0 ? dpsSwitch : (string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase) ? 20 : 1);
             tuyaDict["enabled"] = true;
 
             // One-time recovery for old devices added before Tuya Cloud was configured.
@@ -446,8 +477,7 @@ public class DevicesController : ControllerBase
                     return Ok(new { ok = true, count = 0, devices = Array.Empty<object>(), mode });
             }
 
-            if (_tuyaCloudLocalKey.IsConfigured &&
-                payload.TryGetProperty("devices", out var devicesArr) &&
+            if (payload.TryGetProperty("devices", out var devicesArr) &&
                 devicesArr.ValueKind == JsonValueKind.Array)
             {
                 var root = JsonNode.Parse(payload.GetRawText());
@@ -457,16 +487,26 @@ public class DevicesController : ControllerBase
                     foreach (var node in arr)
                     {
                         if (node is null) continue;
+                        var productKey = node["product_key"]?.GetValue<string>()?.Trim();
                         var did = node["device_id"]?.GetValue<string>()?.Trim();
                         if (string.IsNullOrWhiteSpace(did)) continue;
 
-                        var profile = await _tuyaCloudLocalKey.TryGetDeviceProfileAsync(did, HttpContext.RequestAborted);
-                        if (profile is null) continue;
+                        TuyaCloudLocalKeyService.DeviceProfile? profile = null;
+                        if (_tuyaCloudLocalKey.IsConfigured)
+                            profile = await _tuyaCloudLocalKey.TryGetDeviceProfileAsync(did, HttpContext.RequestAborted);
+                        if (profile is not null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(profile.ProductName))
+                                node["cloud_product_name"] = profile.ProductName;
+                            if (!string.IsNullOrWhiteSpace(profile.CategoryCode))
+                                node["cloud_category"] = profile.CategoryCode;
+                        }
 
-                        if (!string.IsNullOrWhiteSpace(profile.ProductName))
-                            node["cloud_product_name"] = profile.ProductName;
-
-                        var matched = DeviceProductCatalog.TryMatchTuyaCloud(profile.ProductId, profile.ProductName);
+                        var matched = profile is null
+                            ? null
+                            : DeviceProductCatalog.TryMatchTuyaCloud(profile.ProductId, profile.ProductName)
+                                ?? DeviceProductCatalog.TryGetTuyaDefaultByType(MapTuyaCategoryToType(profile.CategoryCode));
+                        matched ??= DeviceProductCatalog.TryMatchTuyaLan(productKey);
                         if (matched is not null)
                         {
                             node["matched_catalog_sku"] = matched.Sku;
@@ -958,7 +998,9 @@ public class DevicesController : ControllerBase
             // Local key из облака не зависит от IP; IP с поиска может отсутствовать — тогда пользователь дописывает в карточке дома.
             if (_tuyaCloudLocalKey.IsConfigured &&
                 string.Equals(product.Manufacturer, "Tuya", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(product.Type, "light", StringComparison.OrdinalIgnoreCase))
+                (string.Equals(product.Type, "light", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(product.Type, "outlet", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(product.Type, "switch", StringComparison.OrdinalIgnoreCase)))
             {
                 var lk = await _tuyaCloudLocalKey.TryGetLocalKeyForDeviceAsync(hardwareId, HttpContext.RequestAborted);
                 if (!string.IsNullOrWhiteSpace(lk))
@@ -974,7 +1016,7 @@ public class DevicesController : ControllerBase
                         ["localKey"] = lk,
                         ["ip"] = ipVal,
                         ["version"] = ver,
-                        ["dpsSwitch"] = 20,
+                        ["dpsSwitch"] = string.Equals(product.Type, "light", StringComparison.OrdinalIgnoreCase) ? 20 : 1,
                     };
                     device.MetaData = JsonSerializer.Serialize(metaDict);
                     await _context.SaveChangesAsync();
@@ -1029,7 +1071,7 @@ public class DevicesController : ControllerBase
 
         var device = await _context.Devices
             .Include(d => d.Room)
-            .ThenInclude(r => r.House) // Обязательно подгружаем дом!
+            .ThenInclude(r => r.House)
             .Include(d => d.UserDevicePermissions)
             .FirstOrDefaultAsync(d => d.DeviceId == id);
 
@@ -1059,6 +1101,7 @@ public class DevicesController : ControllerBase
         }
         }
 
+        // Точка управления командой: проверяем/отправляем команду устройству, фиксируем состояние и публикуем событие.
         if (Enum.TryParse<DeviceStatus>(dto.Status, true, out var newStatus))
         {
             if (!dto.SkipTuyaLan)
@@ -1133,6 +1176,24 @@ public class DevicesController : ControllerBase
         }
 
         var deviceId = device.DeviceId;
+        var houseId = device.Room.HouseId;
+
+        // Чистим "сиротские" команды в сценариях этого дома, чтобы не было "Устройство #.. не найдено".
+        var groups = await _context.ScenarioGroups
+            .Where(g => g.HouseId == houseId)
+            .ToListAsync();
+        var cleanedGroupIds = new List<int>();
+        foreach (var g in groups)
+        {
+            var cmds = ParseScenarioCommands(g.CommandsJson);
+            if (cmds.Count == 0) continue;
+            var filtered = cmds.Where(c => c.DeviceId != deviceId).ToList();
+            if (filtered.Count == cmds.Count) continue;
+            g.CommandsJson = SerializeScenarioCommands(filtered);
+            g.UpdatedAt = DateTime.UtcNow;
+            cleanedGroupIds.Add(g.GroupId);
+        }
+
         _context.Devices.Remove(device);
         await _context.SaveChangesAsync();
 
@@ -1142,7 +1203,56 @@ public class DevicesController : ControllerBase
             deviceId = deviceId
         });
 
+        foreach (var gid in cleanedGroupIds)
+        {
+            await _eventPublisher.PublishAsync("scenario_group.updated", new
+            {
+                houseId,
+                groupId = gid
+            });
+        }
+
         return NoContent();
+    }
+
+    [HttpGet("{id:int}/usage")]
+    public async Task<IActionResult> GetDeviceUsage(int id)
+    {
+        var claim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        if (claim == null) return Unauthorized();
+        var userId = int.Parse(claim.Value);
+        var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "user";
+
+        var device = await _context.Devices
+            .Include(d => d.Room)
+            .ThenInclude(r => r.House)
+            .FirstOrDefaultAsync(d => d.DeviceId == id);
+        if (device == null) return NotFound();
+
+        var isCoOwner = await _context.HouseUsers.AnyAsync(hu =>
+            hu.HouseId == device.Room.HouseId && hu.UserId == userId && hu.Role == "admin");
+        if (userRole != "admin" && device.Room.House.OwnerId != userId && !isCoOwner)
+            return Forbid();
+
+        var groups = await _context.ScenarioGroups
+            .AsNoTracking()
+            .Where(g => g.HouseId == device.Room.HouseId)
+            .Select(g => new { g.GroupId, g.Name, g.CommandsJson })
+            .ToListAsync();
+
+        var refs = new List<object>();
+        foreach (var g in groups)
+        {
+            var used = ParseScenarioCommands(g.CommandsJson).Any(c => c.DeviceId == id);
+            if (used) refs.Add(new { groupId = g.GroupId, name = g.Name });
+        }
+
+        return Ok(new
+        {
+            deviceId = id,
+            scenarioGroups = refs,
+            scenarioGroupsCount = refs.Count
+        });
     }
 
     [HttpPut("{id}")]

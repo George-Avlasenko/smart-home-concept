@@ -51,6 +51,8 @@ export interface Device {
   productSku?: string;
   /** Уникальный идентификатор экземпляра устройства. */
   hardwareDeviceId?: string;
+  /** MAC-адрес (с бэкенда). */
+  macAddress?: string;
   type: string;
   ip?: string;
   status: string; // приходит как строка

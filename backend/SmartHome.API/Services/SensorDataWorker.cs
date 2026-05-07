@@ -24,6 +24,8 @@ public class SensorDataWorker : BackgroundService
         _logger = logger;
     }
 
+    // BackgroundService: хост вызывает ExecuteAsync при старте; тело метода — цикл while + Task.Delay между проходами.
+    // В пояснительной записке блок-схема телеметрии — один линейный проход (без цикла и паузы на схеме): загрузка данных → расчёт → Any → SaveChanges → Publish.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("SensorDataWorker started.");
@@ -202,7 +204,7 @@ public class SensorDataWorker : BackgroundService
                 _logger.LogError(ex, "Error in SensorDataWorker");
             }
 
-            // Wait 10 seconds
+            // Пауза между итерациями цикла (на схеме — «пауза перед следующей итерацией»).
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
         }
     }

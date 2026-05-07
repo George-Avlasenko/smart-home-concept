@@ -876,7 +876,7 @@ export const HouseManagement = () => {
           await api.post('/emulator/ensure-demo-house');
           const retry = await api.get<House[]>('/houses');
           setHouses(retry.data ?? []);
-          fetchDevices();
+          await fetchDevices();
         } catch (_) { /* ignore */ }
       }
     } catch (err: any) {
@@ -1107,12 +1107,27 @@ export const HouseManagement = () => {
   };
 
   const handleDeleteDevice = async (deviceId: number) => {
+      try {
+          const usageRes = await api.get<{ scenarioGroups?: Array<{ groupId: number; name: string }>; scenarioGroupsCount?: number }>(
+            `/devices/${deviceId}/usage`,
+          );
+          const groups = usageRes.data?.scenarioGroups ?? [];
+          const count = usageRes.data?.scenarioGroupsCount ?? groups.length;
+          const prompt = count > 0
+            ? `Устройство используется в ${count} сценарии(ях).\nУдалить устройство и автоматически очистить связи в этих сценариях?`
+            : 'Удалить устройство?';
+          if (!window.confirm(prompt)) return;
+      } catch {
       if (!window.confirm('Удалить устройство?')) return;
+      }
       try {
           await api.delete(`/devices/${deviceId}`);
           fetchDevices();
-          showSuccess('Устройство удалено');
-      } catch (err) { setError('Ошибка удаления'); }
+          showSuccess('Устройство удалено (связи в сценариях очищены)');
+      } catch (err: any) {
+          const data = err.response?.data;
+          setError(typeof data === 'string' ? data : data?.message || data?.detail || 'Ошибка удаления');
+      }
   };
 
   const handleExpandHouse = (houseId: number) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
@@ -1287,22 +1302,22 @@ export const HouseManagement = () => {
   };
 
   const handleConsoleTuyaAdd = async () => {
-    if (!selectedRoomId) return;
+      if (!selectedRoomId) return;
     if (!deviceForm.productSku) {
       setDeviceFormProductSkuError('Выберите модель из каталога');
-      return;
-    }
+          return;
+      }
     if (!deviceForm.name?.trim()) {
       setDeviceFormNameError('Укажите название');
-      return;
-    }
+          return;
+      }
     const hid = consoleTuyaForm.deviceId.trim();
     const lk = consoleTuyaForm.localKey.trim();
     const ip = consoleTuyaForm.ip.trim();
     if (!hid || !lk || !ip) {
       setDeviceDiscoveryError('Заполните Device ID, local key и IP');
-      return;
-    }
+          return;
+      }
     if (!validateIP(ip)) {
       setDeviceDiscoveryError('Некорректный IP');
       return;
@@ -1380,7 +1395,7 @@ export const HouseManagement = () => {
             p = strictProduct;
           }
         }
-        const label = p?.tuyaProductLabel || (row.cloud_product_name ? `Tuya ${row.cloud_product_name}` : undefined);
+        const label = row.cloud_product_name || undefined;
         return {
           ...row,
           guessedSku: p?.sku,
@@ -1397,8 +1412,10 @@ export const HouseManagement = () => {
         if (ar !== br) return ar - br;
         return (a.guessedDisplayName ?? '').localeCompare(b.guessedDisplayName ?? '', 'ru');
       });
+      // Если пользователь уже выбрал модель (strictSku), не скрываем устройства без guessedSku:
+      // дадим выбрать найденную розетку и привяжем выбранный SKU при добавлении.
       const filteredByQuery = strictSku
-        ? sorted.filter((x) => (x.guessedSku ?? '').toLowerCase() === strictSku.toLowerCase())
+        ? sorted
         : sorted.filter((x) => !!x.guessedSku);
 
       const houseRoomIds = selectedHouseId
@@ -1415,7 +1432,7 @@ export const HouseManagement = () => {
         setDiscoveryStatus('not_found');
         setNetworkFoundDevices([]);
         setDeviceDiscoveryError('Новых устройств не найдено');
-        return;
+          return;
       }
       setNetworkFoundDevices(filtered);
       if (!deviceForm.productSku) {
@@ -1519,7 +1536,7 @@ export const HouseManagement = () => {
       try {
           await api.post(`/houses/${selectedHouseId}/users/transfer/${newOwnerId}`);
           setOpenResidentsDialog(false);
-          fetchHouses();
+          fetchHouses(); 
           if (selectedHouseId) fetchResidents(selectedHouseId);
           showSuccess('Права владения переданы');
       } catch (err: any) { setError('Ошибка передачи прав'); }
@@ -1647,10 +1664,10 @@ export const HouseManagement = () => {
       </Box>
 
       <Toast
-        open={!!error || !!successMessage}
+          open={!!error || !!successMessage} 
         message={error || successMessage || ''}
         severity={error ? 'error' : 'success'}
-        onClose={handleCloseSnackbar}
+          onClose={handleCloseSnackbar}
       />
 
       <Box>
@@ -1733,11 +1750,11 @@ export const HouseManagement = () => {
                                 alignItems: 'center', 
                                 cursor: 'pointer', 
                                 border: '1px solid rgba(255,255,255,0.3)', 
-                                    borderRadius: '4px', 
-                                    padding: '4px 10px',
+                                borderRadius: '4px', 
+                                padding: '4px 10px',
                                     color: '#F08B5C',
                                     '&:hover': { backgroundColor: 'rgba(240,139,92,0.15)' },
-                                    mr: 1
+                                mr: 1
                             }}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1812,11 +1829,11 @@ export const HouseManagement = () => {
                                 
                                 {editingRoomId === room.roomId ? (
                                     <Box sx={{ flex: '1 1 240px', minWidth: 0 }}>
-                                        <InlineEdit
-                                            initialValue={room.roomName}
-                                            onSave={(val) => handleEditRoom(room.roomId, val)}
-                                            onCancel={() => setEditingRoomId(null)}
-                                        />
+                                    <InlineEdit
+                                        initialValue={room.roomName}
+                                        onSave={(val) => handleEditRoom(room.roomId, val)}
+                                        onCancel={() => setEditingRoomId(null)}
+                                    />
                                     </Box>
                                 ) : (
                                     <Box
@@ -2331,19 +2348,19 @@ export const HouseManagement = () => {
               onChange={(e) => setConsoleTuyaForm({ ...consoleTuyaForm, deviceId: e.target.value })}
               inputProps={{ spellCheck: false }}
             />
-            <TextField
+            <TextField 
               label="Local key"
               size="small"
-              fullWidth
+              fullWidth 
               value={consoleTuyaForm.localKey}
               onChange={(e) => setConsoleTuyaForm({ ...consoleTuyaForm, localKey: e.target.value })}
               autoComplete="off"
               inputProps={{ spellCheck: false }}
             />
-            <TextField
+            <TextField 
               label="IP в LAN"
               size="small"
-              fullWidth
+              fullWidth 
               value={consoleTuyaForm.ip}
               onChange={(e) => setConsoleTuyaForm({ ...consoleTuyaForm, ip: e.target.value })}
               placeholder="192.168.x.x"
@@ -2371,7 +2388,7 @@ export const HouseManagement = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setOpenManualTuyaDialog(false); setDeviceFormHardwareIdError(''); }}>Закрыть</Button>
-          <Button
+          <Button 
             variant="contained"
             disabled={deviceAddInProgress || !deviceForm.productSku || !deviceForm.name?.trim()}
             onClick={() => void handleConsoleTuyaAdd()}
@@ -2599,7 +2616,7 @@ export const HouseManagement = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setTransferToNewOwnerDialog(false)}>Отмена</Button>
-        </DialogActions>
+          </DialogActions>
       </Dialog>
       
       {/* Диалог управления правами */}

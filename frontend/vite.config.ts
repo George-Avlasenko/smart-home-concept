@@ -11,6 +11,8 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true, // Поддержка WebSocket для SSE
+        timeout: 0,
+        proxyTimeout: 0,
       },
       '/tuya': {
         target: 'http://localhost:5055',

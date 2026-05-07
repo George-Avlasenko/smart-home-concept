@@ -233,6 +233,9 @@ export const Dashboard = () => {
   const [lightsWarmthExpanded, setLightsWarmthExpanded] = useState(false);
   const [intercomOpen, setIntercomOpen] = useState(false);
   const [intercomBusy, setIntercomBusy] = useState(false);
+  const [breakerDialogOpen, setBreakerDialogOpen] = useState(false);
+  const [selectedBreakerId, setSelectedBreakerId] = useState<number | null>(null);
+  const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null);
   const intercomVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const fetchDevices = async () => {
@@ -472,6 +475,72 @@ export const Dashboard = () => {
   const houseLights = useMemo(() => houseDevices.filter(d => d.type.toLowerCase() === 'light'), [houseDevices]);
   const houseVentilation = useMemo(() => houseDevices.filter(d => d.type.toLowerCase() === 'ventilation'), [houseDevices]);
   const houseHumidifiers = useMemo(() => houseDevices.filter(d => d.type.toLowerCase() === 'humidifier'), [houseDevices]);
+  const houseCameras = useMemo(() => houseDevices.filter(d => d.type.toLowerCase() === 'camera'), [houseDevices]);
+  const houseBreakers = useMemo(
+    () =>
+      houseDevices.filter((d) => {
+        const t = String(d.type ?? '').toLowerCase();
+        const sku = String(d.productSku ?? d.settings?.catalogSku ?? '').toLowerCase();
+        const name = String(d.name ?? '').toLowerCase();
+        return (
+          t === 'switch' &&
+          (sku.startsWith('sh-breaker-') || /\b(автомат|breaker|щит)\b/.test(name))
+        );
+      }),
+    [houseDevices],
+  );
+  const selectedBreaker = useMemo(
+    () => houseBreakers.find((d) => d.deviceId === selectedBreakerId) ?? null,
+    [houseBreakers, selectedBreakerId],
+  );
+  const selectedCamera = useMemo(
+    () => houseCameras.find((d) => d.deviceId === selectedCameraId) ?? null,
+    [houseCameras, selectedCameraId],
+  );
+
+  useEffect(() => {
+    if (selectedHouseId == null) {
+      setSelectedBreakerId(null);
+      setSelectedCameraId(null);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(`dashboardDevicePrefs:${selectedHouseId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { breakerId?: number; cameraId?: number };
+        setSelectedBreakerId(Number.isFinite(Number(parsed.breakerId)) ? Number(parsed.breakerId) : null);
+        setSelectedCameraId(Number.isFinite(Number(parsed.cameraId)) ? Number(parsed.cameraId) : null);
+      } else {
+        setSelectedBreakerId(null);
+        setSelectedCameraId(null);
+      }
+    } catch {
+      setSelectedBreakerId(null);
+      setSelectedCameraId(null);
+    }
+  }, [selectedHouseId]);
+
+  useEffect(() => {
+    if (selectedHouseId == null) return;
+    const breakerId = houseBreakers.some((d) => d.deviceId === selectedBreakerId)
+      ? selectedBreakerId
+      : (houseBreakers[0]?.deviceId ?? null);
+    const cameraId = houseCameras.some((d) => d.deviceId === selectedCameraId)
+      ? selectedCameraId
+      : (houseCameras[0]?.deviceId ?? null);
+
+    if (breakerId !== selectedBreakerId) setSelectedBreakerId(breakerId);
+    if (cameraId !== selectedCameraId) setSelectedCameraId(cameraId);
+
+    try {
+      window.localStorage.setItem(
+        `dashboardDevicePrefs:${selectedHouseId}`,
+        JSON.stringify({ breakerId, cameraId }),
+      );
+    } catch {
+      // ignore localStorage issues
+    }
+  }, [selectedHouseId, houseBreakers, houseCameras, selectedBreakerId, selectedCameraId]);
 
   const [houseChartDays, setHouseChartDays] = useState(1);
   const [houseChartData, setHouseChartData] = useState<HouseSensorSummaryPoint[]>([]);
@@ -631,47 +700,26 @@ export const Dashboard = () => {
   };
 
   const handlePowerOff = async () => {
-    if (selectedHouseId === null) return;
+    if (selectedHouseId === null || !selectedBreaker) return;
     const msg =
-      'Отключить электричество в доме?\n\n' +
-      'Будет выключено питание всего дома. ' +
-      'Двери и окна будут автоматически разблокированы.\n\nПродолжить?';
+      `Отключить автомат "${selectedBreaker.name}"?\n\n` +
+      'Питание будет отключено только выбранным автоматом.\n\nПродолжить?';
     if (!window.confirm(msg)) return;
     const logEntry = { event: 'main_power_off', houseId: selectedHouseId, at: new Date().toISOString() };
     try {
       localStorage.setItem('powerOffLog', JSON.stringify(logEntry));
     } catch (_) {}
 
-    // Перед переходом на страницу отключения выставляем "открыто":
-    // - замки: снимаем блокировку (Inactive)
-    // - окна: включаем режим opened и соответствующий статус
     try {
-      await Promise.all(
-        houseLocks.map(d =>
-          api.put(`/devices/${d.deviceId}/status`, { status: DeviceStatus.Inactive })
-        )
-      );
-
-      await Promise.all(
-        houseWindows.map(d =>
-          api.put(`/devices/${d.deviceId}/settings`, { settings: { ...d.settings, mode: 'opened' } })
-        )
-      );
-
-      await Promise.all(
-        houseWindows.map(d =>
-          api.put(`/devices/${d.deviceId}/status`, { status: DeviceStatus.Active })
-        )
-      );
+      await api.put(`/devices/${selectedBreaker.deviceId}/status`, { status: DeviceStatus.Inactive });
+      await fetchDevices();
     } catch (_) {
-      // Если API временно недоступен — всё равно покажем экран отключения
+      // ignore
     }
-
-    sessionStorage.clear();
-    window.location.href = '/power-off';
   };
 
   const handleIntercomOpen = () => {
+    if (!selectedCamera) return;
     setIntercomOpen(true);
     // Открытие делается кликом, поэтому воспроизведение со звуком обычно разрешается браузером.
     // Если не разрешит — просто не будет звука, но интерфейс откроется.
@@ -881,10 +929,30 @@ export const Dashboard = () => {
               </Box>
               {/* Отключение — 1 */}
               <Box sx={{ flex: '1 1 0', minWidth: 140, maxWidth: '100%' }}>
-                <Box sx={{ p: 2, height: '100%', background: 'rgba(255,255,255,0.08)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 1 }}>Щиток</Typography>
-                  <Button size="small" variant="outlined" sx={{ borderColor: 'rgba(255,100,100,0.6)', color: '#ff8a8a' }} onClick={handlePowerOff}>
-                    Отключить электричество
+                <Box
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setBreakerDialogOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') setBreakerDialogOpen(true);
+                  }}
+                  sx={{ p: 2, height: '100%', background: 'rgba(255,255,255,0.08)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', justifyContent: 'center', cursor: 'pointer', '&:hover': { borderColor: 'rgba(240, 139, 92, 0.5)', boxShadow: '0 0 20px rgba(240, 139, 92, 0.22)' } }}
+                >
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', mb: 0.75 }}>Щиток</Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)', display: 'block', mb: 1 }}>
+                    {selectedBreaker ? `Выбрано: ${selectedBreaker.name}` : 'Нет доступных автоматов'}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={!selectedBreaker}
+                    sx={{ borderColor: 'rgba(255,100,100,0.6)', color: '#ff8a8a' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handlePowerOff();
+                    }}
+                  >
+                    Отключить автомат
                   </Button>
                 </Box>
               </Box>
@@ -893,9 +961,9 @@ export const Dashboard = () => {
                 <Box
                   role="button"
                   tabIndex={0}
-                  onClick={handleIntercomOpen}
+                  onClick={() => selectedCamera && handleIntercomOpen()}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') handleIntercomOpen();
+                    if ((e.key === 'Enter' || e.key === ' ') && selectedCamera) handleIntercomOpen();
                   }}
                   sx={{
                     p: 2,
@@ -913,8 +981,11 @@ export const Dashboard = () => {
                     },
                   }}
                 >
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 1 }}>
-                    Камера у двери
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
+                    Камера
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)', display: 'block', mb: 0.8 }}>
+                    {selectedCamera ? `Выбрано: ${selectedCamera.name}` : 'Камера не выбрана'}
                   </Typography>
 
                   <Box
@@ -928,15 +999,22 @@ export const Dashboard = () => {
                       mb: 1,
                     }}
                   >
-                    <Box
-                      component="img"
-                      src={intercomImg}
-                      alt="Камера у двери"
-                      sx={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.92 }}
-                    />
+                    {selectedCamera ? (
+                      <Box
+                        component="img"
+                        src={intercomImg}
+                        alt={selectedCamera.name}
+                        sx={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.92 }}
+                      />
+                    ) : (
+                      <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                          Нет камеры в доме
+                        </Typography>
+                      </Box>
+                    )}
                   </Box>
 
-                    {/* подпись убрана: оставляем только картинку и управление */}
                 </Box>
               </Box>
               {/* Погода на улице — 2 */}
@@ -1042,7 +1120,7 @@ export const Dashboard = () => {
                             </Box>
                           </Box>
                           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)' }}>
-                            {windVisual.wind.toFixed(1)} м/с
+                            {windVisual.wind.toFixed(1)} км/ч
                           </Typography>
                         </Box>
 
@@ -1071,22 +1149,56 @@ export const Dashboard = () => {
           </Box>
 
           <Dialog
+            open={breakerDialogOpen}
+            onClose={() => setBreakerDialogOpen(false)}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>
+              Щиток
+            </DialogTitle>
+            <DialogContent sx={{ pt: 1 }}>
+              <FormControl size="small" fullWidth sx={{ mt: 1 }}>
+                <InputLabel id="dashboard-breaker-dialog-select-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                  Автомат
+                </InputLabel>
+                <Select
+                  id="dashboard-breaker-dialog-select"
+                  labelId="dashboard-breaker-dialog-select-label"
+                  value={selectedBreakerId ?? ''}
+                  label="Автомат"
+                  onChange={(e) => setSelectedBreakerId(Number(e.target.value))}
+                  sx={{ color: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
+                >
+                  {houseBreakers.map((d) => (
+                    <MenuItem key={d.deviceId} value={d.deviceId}>{d.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+              <Button onClick={() => setBreakerDialogOpen(false)} sx={{ color: 'rgba(255,255,255,0.85)' }}>
+                Закрыть
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => void handlePowerOff()}
+                disabled={!selectedBreaker}
+                sx={{ borderColor: 'rgba(255,100,100,0.6)', color: '#ff8a8a' }}
+              >
+                Отключить автомат
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
             open={intercomOpen}
             onClose={handleIntercomCancel}
             maxWidth="md"
             fullWidth
-            PaperProps={{
-              sx: {
-                background: 'rgba(36, 42, 72, 0.96)',
-                backdropFilter: 'none',
-                WebkitBackdropFilter: 'none',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 2,
-              },
-            }}
           >
               <DialogTitle sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>
-                Камера у двери
+                {selectedCamera ? selectedCamera.name : 'Камера'}
               </DialogTitle>
             <DialogContent sx={{ pt: 1 }}>
               <Box
@@ -1100,13 +1212,13 @@ export const Dashboard = () => {
                 }}
               >
                 <video
-                  src={intercomVideo4}
-                  autoPlay
-                  loop
-                  playsInline
-                  aria-label="Видео с домофона"
-                  ref={intercomVideoRef}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.95 }}
+                  style={{ display: 'none' }}
+                />
+                <Box
+                  component="img"
+                  src={intercomImg}
+                  alt={selectedCamera ? selectedCamera.name : 'Камера'}
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.95 }}
                 />
               </Box>
               <Box
@@ -1141,8 +1253,27 @@ export const Dashboard = () => {
                   {doorState.text}
                 </Typography>
               </Box>
+
             </DialogContent>
-            <DialogActions sx={{ px: 3, pb: 2 }}>
+            <DialogActions sx={{ px: 3, pb: 2, display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+              <FormControl size="small" sx={{ minWidth: 260, maxWidth: '100%' }}>
+                <InputLabel id="dashboard-camera-dialog-select-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                  Камера
+                </InputLabel>
+                <Select
+                  id="dashboard-camera-dialog-select"
+                  labelId="dashboard-camera-dialog-select-label"
+                  value={selectedCameraId ?? ''}
+                  label="Камера"
+                  onChange={(e) => setSelectedCameraId(Number(e.target.value))}
+                  sx={{ color: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
+                >
+                  {houseCameras.map((d) => (
+                    <MenuItem key={d.deviceId} value={d.deviceId}>{d.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
               <Button onClick={handleIntercomCancel} sx={{ color: 'rgba(255,255,255,0.85)' }}>
                 Отмена
               </Button>
@@ -1162,6 +1293,7 @@ export const Dashboard = () => {
               >
                 Закрыть
               </Button>
+              </Box>
             </DialogActions>
           </Dialog>
 

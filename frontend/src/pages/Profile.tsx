@@ -14,7 +14,6 @@ interface UserProfile {
     email: string;
     fullName?: string;
     avatarUrl?: string;
-    role: string;
 }
 
 export const Profile = () => {
@@ -187,9 +186,6 @@ export const Profile = () => {
                     </Button>
                 )}
                 
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
-                    Роль: {profile.role}
-        </Typography>
             </Box>
 
             {/* Правая колонка: Данные */}

@@ -52,7 +52,7 @@ export const GlassNavigation: React.FC = () => {
   const navItems: NavItem[] = [
     { icon: <HomeIcon />, label: 'Дашборд', path: '/' },
     { icon: <DevicesIcon />, label: 'Все девайсы', path: '/devices' },
-    ...(showGroupsNav ? [{ icon: <GroupWorkIcon />, label: 'Группы', path: '/groups' } as NavItem] : []),
+    ...(showGroupsNav ? [{ icon: <GroupWorkIcon />, label: 'Сценарии', path: '/groups' } as NavItem] : []),
     { icon: <SettingsIcon />, label: 'Управление', path: '/admin/houses' },
     ...(user?.role === 'admin' 
       ? [

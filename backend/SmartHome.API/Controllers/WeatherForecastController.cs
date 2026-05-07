@@ -87,7 +87,8 @@ public class WeatherForecastController : ControllerBase
         var isSnow = weather.IsSnow;
         var isRain = weather.IsRain;
         var windRounded = weather.WindSpeedMps;
-        var windLevel = windRounded < 0.7m ? 1 : windRounded < 1.6m ? 2 : 3;
+        // Грубые 3 уровня для иконки ветра (км/ч из Open-Meteo по умолчанию).
+        var windLevel = windRounded < 12.0m ? 1 : windRounded < 29.0m ? 2 : 3;
         var summary = weather.Summary;
 
         if (houseId.HasValue)

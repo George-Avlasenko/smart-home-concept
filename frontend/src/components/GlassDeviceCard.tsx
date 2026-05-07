@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, CardContent, Typography, Switch, Box, IconButton, Tooltip, Slider, FormControl, Select, MenuItem, InputLabel, Checkbox, FormControlLabel, Collapse, Alert } from '@mui/material';
+import { Card, CardContent, Typography, Switch, Box, IconButton, Tooltip, Slider, FormControl, Select, MenuItem, InputLabel, Checkbox, FormControlLabel, Collapse, Alert, Stack, TextField, Button } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { DeviceStatus } from '../types';
@@ -24,8 +24,66 @@ import { ScheduleDialog } from './ScheduleDialog';
 import { SensorStatsDialog } from './SensorStatsDialog';
 import { useAuth } from '../context/AuthContext';
 import { tuyaApi } from '../api/tuyaClient';
+import { DeskLampIcon, SwitchLeverIcon, isBreakerSwitch, isDeskLamp } from './DeviceIcons';
 
 type TuyaColorPending = { h: number; s: number; v: number };
+type TuyaEnergyStats = {
+  voltageV?: number;
+  currentA?: number;
+  powerW?: number;
+  energyKwh?: number;
+};
+
+function parseTuyaEnergyStats(raw: any): TuyaEnergyStats {
+  const dps = raw?.dps && typeof raw.dps === 'object' ? raw.dps : {};
+  const n = (k: string): number | undefined => {
+    const v = dps[k];
+    if (v == null) return undefined;
+    const x = Number(v);
+    return Number.isFinite(x) ? x : undefined;
+  };
+
+  // Most Tuya plugs: 18=current(mA), 19=power(0.1W), 20=voltage(0.1V)
+  const currentA = n('18') != null ? n('18')! / 1000 : n('102');
+  const powerW = n('19') != null ? n('19')! / 10 : n('101');
+  const voltageV = n('20') != null ? n('20')! / 10 : n('103');
+  const energyKwh =
+    n('17') != null
+      ? n('17')! / 1000
+      : n('104') != null
+        ? n('104')!
+        : undefined;
+
+  return { voltageV, currentA, powerW, energyKwh };
+}
+
+function withOutletDefaults(s: TuyaEnergyStats): Required<TuyaEnergyStats> {
+  return {
+    voltageV: s.voltageV ?? 220,
+    currentA: s.currentA ?? 0,
+    powerW: s.powerW ?? 0,
+    energyKwh: s.energyKwh ?? 0,
+  };
+}
+
+function pickNumber(obj: Record<string, any>, keys: string[]): number | null {
+  for (const key of keys) {
+    const v = obj[key];
+    if (v == null) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function sensorKindOf(device: Device, settings: Record<string, any>): 'climate' | 'power' | 'water' | 'gas' | 'generic' {
+  const sku = String(device.productSku ?? settings.catalogSku ?? '').toLowerCase();
+  const name = String(device.name ?? '').toLowerCase();
+  if (sku.includes('meter-power') || /\b(энерг|электро|power)\b/.test(name)) return 'power';
+  if (sku.includes('meter-water') || /\b(вода|water)\b/.test(name)) return 'water';
+  if (sku.includes('meter-gas') || /\b(газ|gas)\b/.test(name)) return 'gas';
+  return 'climate';
+}
 
 /** Из MetaData после создания устройства; если нет — старые записи: CCT да, RGB нет. */
 function parseLightCapabilities(
@@ -88,6 +146,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
   const canManageSchedule = permission === 'admin' || permission === 'user';
   
   const [localSettings, setLocalSettings] = useState(settings);
+
   const currentTempDisplay = Number(
     settings.currentTemp ?? settings.temp ?? localSettings.currentTemp ?? localSettings.temp ?? 21
   );
@@ -96,6 +155,8 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
   const [openSchedule, setOpenSchedule] = useState(false);
   const [openStats, setOpenStats] = useState(false);
   const [tuyaError, setTuyaError] = useState('');
+  const [tuyaEnergy, setTuyaEnergy] = useState<TuyaEnergyStats>({});
+  const outletEnergyView = withOutletDefaults(tuyaEnergy);
   const setTuyaErrorBoth = useCallback((message: string) => {
     setTuyaError(message);
     if (message.trim()) onFrontError?.(message);
@@ -252,6 +313,30 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
     setTuyaError('');
   }, [device.deviceId, settings]);
 
+  useEffect(() => {
+    const isOutlet = device.type.toLowerCase() === 'outlet';
+    const tuyaEnabled = !!(localSettings?.tuya?.enabled || settings?.tuya?.enabled);
+    const canPoll = !scenarioDraft && isOutlet && tuyaEnabled;
+    if (!canPoll) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { data } = await tuyaApi.post('/v1/status', getTuyaBasePayload());
+        if (cancelled) return;
+        setTuyaEnergy(parseTuyaEnergyStats(data?.raw));
+      } catch {
+        // silent: outlet still can be switched from backend status toggle.
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [device.type, localSettings, settings, scenarioDraft, getTuyaBasePayload]);
+
   // Отправляем изменения настроек на сервер с задержкой
   useEffect(() => {
     const settingsStr = JSON.stringify(settings);
@@ -280,16 +365,25 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
     const iconColor = isActive ? '#F08B5C' : 'rgba(255, 255, 255, 0.5)';
     
     switch (type) {
-      case 'light': return <LightbulbIcon fontSize={iconSize} sx={{ color: iconColor }} />;
+      case 'light':
+        return isDeskLamp(device)
+          ? <DeskLampIcon fontSize={iconSize} sx={{ color: iconColor }} />
+          : <LightbulbIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'thermostat': return <ThermostatIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'kettle': return <CoffeeIcon fontSize={iconSize} sx={{ color: iconColor }} />;
-      case 'switch': return <PowerSettingsNewIcon fontSize={iconSize} sx={{ color: iconColor }} />;
+      case 'switch':
+        return isBreakerSwitch(device)
+          ? <PowerSettingsNewIcon fontSize={iconSize} sx={{ color: iconColor }} />
+          : <SwitchLeverIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'outlet': return <OutletIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'vacuum': return <CleaningServicesIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'curtain': return <CurtainsIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'lock': return isActive ? <LockIcon fontSize={iconSize} sx={{ color: '#FF6B6B' }} /> : <LockOpenIcon fontSize={iconSize} sx={{ color: '#4ECDC4' }} />;
       case 'window': return <WindowIcon fontSize={iconSize} sx={{ color: iconColor }} />;
-      case 'camera': return <VideocamIcon fontSize={iconSize} sx={{ color: iconColor }} />;
+      case 'camera':
+      case 'ipc':
+      case 'sp':
+        return <VideocamIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'sensor': return <SensorsIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'humidifier': return <OpacityIcon fontSize={iconSize} sx={{ color: iconColor }} />;
       case 'ventilation': return <AirIcon fontSize={iconSize} sx={{ color: iconColor }} />;
@@ -476,6 +570,124 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                 Цвет RGB: H {Math.round(Number(localSettings.colorHue ?? 0))}° · S {Math.round(Number(localSettings.colorSat ?? 100))}%
               </Typography>
             )}
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'outlet' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              {`Мощность: ${outletEnergyView.powerW.toFixed(1)} Вт`}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+              {`Напряжение: ${outletEnergyView.voltageV.toFixed(1)} В`}
+              {' • '}
+              {`Ток: ${outletEnergyView.currentA.toFixed(3)} А`}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+              {`Энергия: ${outletEnergyView.energyKwh.toFixed(3)} кВт·ч`}
+            </Typography>
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'sensor' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            {(() => {
+              const kind = sensorKindOf(device, settings);
+              if (kind === 'climate') {
+                return (
+                  <>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+                      Температура: {settings.currentTemp ?? settings.temp ?? '—'}°C
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+                      Влажность: {settings.humidity ?? '—'}%
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+                      CO₂: {settings.co2 ?? settings.coPpm ?? settings.co ?? '—'} ppm
+                    </Typography>
+                  </>
+                );
+              }
+              if (kind === 'power') {
+                return (
+                  <>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+                      Мощность: {(pickNumber(settings, ['powerW', 'power', 'activePower']) ?? 0).toFixed(1)} Вт
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+                      Энергия: {(pickNumber(settings, ['energyKwh', 'energy', 'totalKwh']) ?? 0).toFixed(3)} кВт·ч
+                    </Typography>
+                  </>
+                );
+              }
+              if (kind === 'water') {
+                return (
+                  <>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+                      Расход воды: {(pickNumber(settings, ['waterM3', 'volumeM3', 'totalM3']) ?? 0).toFixed(3)} м³
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+                      Поток: {(pickNumber(settings, ['flowLpm', 'flowRate', 'flow']) ?? 0).toFixed(2)}
+                    </Typography>
+                  </>
+                );
+              }
+              if (kind === 'gas') {
+                return (
+                  <>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+                      Расход газа: {(pickNumber(settings, ['gasM3', 'volumeM3', 'totalM3']) ?? 0).toFixed(3)} м³
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+                      Поток: {(pickNumber(settings, ['flowM3h', 'flowRate', 'flow']) ?? 0).toFixed(3)} м³/ч
+                    </Typography>
+                  </>
+                );
+              }
+              return null;
+            })()}
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'window' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              Состояние: {localSettings.mode === 'opened' ? 'Открыто' : localSettings.mode === 'tilted' ? 'Проветривание' : 'Закрыто'}
+            </Typography>
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'curtain' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              Состояние: {isActive ? 'Открыты' : 'Закрыты'}
+            </Typography>
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'humidifier' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              Влажность: {settings.humidity ?? localSettings.humidity ?? '—'}%
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+              Цель: {localSettings.targetHumidity ?? 50}%
+            </Typography>
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'ventilation' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              CO₂: {settings.co2 ?? settings.coPpm ?? localSettings.co2 ?? '—'} ppm
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+              Диапазон: {localSettings.co2Min ?? 800}–{localSettings.co2Max ?? 1200} ppm
+            </Typography>
+          </Box>
+        )}
+        {compact && device.type.toLowerCase() === 'thermostat' && (
+          <Box mt={2} sx={{ overflow: 'hidden', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block' }}>
+              Целевая: {localSettings.targetTemp ?? 22}°C
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.75)', display: 'block', mt: 0.35 }}>
+              Текущая: {Number.isFinite(currentTempDisplay) ? currentTempDisplay : 21}°C
+            </Typography>
           </Box>
         )}
 
@@ -807,13 +1019,6 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                 <MenuItem value="opened">Открыто</MenuItem>
               </Select>
             </FormControl>
-            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block' }}>
-                На улице: {device.outdoorTemp != null ? `${device.outdoorTemp}°C` : '—'}
-                {device.outdoorHumidity != null && ` • Влажность: ${device.outdoorHumidity}%`}
-                {device.outdoorCo2 != null && ` • CO₂: ${device.outdoorCo2} ppm`}
-              </Typography>
-            </Box>
           </Box>
         )}
 
@@ -935,28 +1140,6 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
           </Box>
         )}
 
-        {device.type.toLowerCase() === 'camera' && (
-          <Box
-            mt={2}
-            sx={{
-              width: '100%',
-              aspectRatio: '16/9',
-              maxHeight: 180,
-              background: 'rgba(0,0,0,0.4)',
-              borderRadius: 1,
-              border: '1px solid rgba(255,255,255,0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-            }}
-          >
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-              Видео (подключите поток)
-            </Typography>
-          </Box>
-        )}
-
         {device.type.toLowerCase() === 'lock' && (
           <Box mt={2}>
             <Typography 
@@ -971,28 +1154,86 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
           </Box>
         )}
 
+        {device.type.toLowerCase() === 'outlet' && (
+          <Box mt={2}>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.78)' }}>
+              Напряжение: {outletEnergyView.voltageV.toFixed(1)} В
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.78)' }}>
+              Ток: {outletEnergyView.currentA.toFixed(3)} А
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.78)' }}>
+              Мощность: {outletEnergyView.powerW.toFixed(1)} Вт
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.78)' }}>
+              Энергия: {outletEnergyView.energyKwh.toFixed(3)} кВт·ч
+            </Typography>
+          </Box>
+        )}
+
         {device.type.toLowerCase() === 'sensor' && (
           <Box mt={2}>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              Температура: {settings.currentTemp ?? settings.temp ?? 24}°C
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              Влажность: {settings.humidity ?? 40}%
-            </Typography>
-            <Tooltip title="Частей на миллион — концентрация CO₂. Норма до 1000 ppm; выше — желательно проветривание.">
-              <Typography
-                variant="body2"
-                sx={{
-                  color:
-                    (settings.co2 ?? settings.coPpm ?? settings.co ?? settings.gas ?? 0) > 1000
-                      ? '#FF6B6B'
-                      : 'rgba(255, 255, 255, 0.7)',
-                  cursor: 'help',
-                }}
-              >
-                CO₂: {settings.co2 ?? settings.coPpm ?? settings.co ?? settings.gas ?? '—'} ppm
-              </Typography>
-            </Tooltip>
+            {(() => {
+              const kind = sensorKindOf(device, settings);
+              if (kind === 'climate') {
+                const co2 = settings.co2 ?? settings.coPpm ?? settings.co ?? '—';
+                return (
+                  <>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Температура: {settings.currentTemp ?? settings.temp ?? 24}°C
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Влажность: {settings.humidity ?? 40}%
+                    </Typography>
+                    <Tooltip title="Частей на миллион — концентрация CO₂. Норма до 1000 ppm; выше — желательно проветривание.">
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: Number(co2) > 1000 ? '#FF6B6B' : 'rgba(255, 255, 255, 0.7)',
+                          cursor: 'help',
+                        }}
+                      >
+                        CO₂: {co2} ppm
+                      </Typography>
+                    </Tooltip>
+                  </>
+                );
+              }
+              if (kind === 'power') {
+                return (
+                  <>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Мощность: {(pickNumber(settings, ['powerW', 'power', 'activePower']) ?? 0).toFixed(1)} Вт
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Энергия: {(pickNumber(settings, ['energyKwh', 'energy', 'totalKwh']) ?? 0).toFixed(3)} кВт·ч
+                    </Typography>
+                  </>
+                );
+              }
+              if (kind === 'water') {
+                return (
+                  <>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Расход воды: {(pickNumber(settings, ['waterM3', 'volumeM3', 'totalM3']) ?? 0).toFixed(3)} м³
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                      Поток: {(pickNumber(settings, ['flowLpm', 'flowRate', 'flow']) ?? 0).toFixed(2)}
+                    </Typography>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                    Расход газа: {(pickNumber(settings, ['gasM3', 'volumeM3', 'totalM3']) ?? 0).toFixed(3)} м³
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                    Поток: {(pickNumber(settings, ['flowM3h', 'flowRate', 'flow']) ?? 0).toFixed(3)} м³/ч
+                  </Typography>
+                </>
+              );
+            })()}
           </Box>
         )}
         </>

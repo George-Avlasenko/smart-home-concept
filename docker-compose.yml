@@ -61,7 +61,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "5173:80"
+      - "80:80"
     depends_on:
       - backend
       - tuya-service
