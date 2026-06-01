@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { forceLogoutBlocked, isAccountBlockedResponse } from '../utils/accountBlocked';
 
 const API_URL = '/api'; // Используем относительный путь (через Vite proxy)
 
@@ -15,14 +16,23 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Глобальный Content-Type: application/json ломает multipart: boundary не подставляется
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
   return config;
 });
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
-      // Если токен истек - сохраняем сообщение и перенаправляем на страницу входа
+    const status = error.response?.status;
+    const data = error.response?.data;
+    if (isAccountBlockedResponse(status, data)) {
+      forceLogoutBlocked();
+      return Promise.reject(error);
+    }
+    if (status === 401) {
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
       sessionStorage.setItem('tokenExpired', 'true');

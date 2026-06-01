@@ -2,6 +2,8 @@ export interface User {
   userId: number;
   username: string;
   role: string;
+  /** Публичный URL аватара (как в GET /api/profile), тот же origin что и SPA */
+  avatarUrl?: string | null;
 }
 
 export interface SystemUser {
@@ -20,6 +22,7 @@ export interface AuthResponse {
   username: string;
   role: string;
   userId: number;
+  avatarUrl?: string | null;
 }
 
 export enum DeviceStatus {

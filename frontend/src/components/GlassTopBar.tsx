@@ -355,14 +355,15 @@ export const GlassTopBar: React.FC<GlassTopBarProps> = ({
           }}
         >
           <Avatar
+            key={user?.avatarUrl ?? 'letter'}
+            src={user?.avatarUrl || undefined}
             sx={{
               width: 36,
               height: 36,
               bgcolor: 'rgba(240, 139, 92, 0.5)',
-              border: '2px solid rgba(255, 255, 255, 0.3)',
             }}
           >
-            {user?.username?.[0]?.toUpperCase() || 'U'}
+            {!user?.avatarUrl && (user?.username?.[0]?.toUpperCase() || 'U')}
           </Avatar>
           <Typography variant="body2" sx={{ color: '#FFFFFF', fontWeight: 500 }}>
             {user?.username || 'User'}

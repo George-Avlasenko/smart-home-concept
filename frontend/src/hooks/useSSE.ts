@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { forceLogoutBlocked, isAccountBlockedResponse } from '../utils/accountBlocked';
 
 interface SSEEvent {
   type: string;
@@ -59,8 +60,10 @@ export const useSSE = (options: UseSSEOptions = {}) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    console.log('[SSE] Connecting to /api/events/subscribe...');
-    
+    if (import.meta.env.DEV) {
+      console.log('[SSE] Connecting to /api/events/subscribe...');
+    }
+
     fetch('/api/events/subscribe', {
       method: 'GET',
       headers: {
@@ -71,6 +74,18 @@ export const useSSE = (options: UseSSEOptions = {}) => {
     })
       .then(async (response) => {
         if (!response.ok) {
+          if (response.status === 403) {
+            let data: unknown = null;
+            try {
+              data = await response.clone().json();
+            } catch {
+              /* ignore */
+            }
+            if (isAccountBlockedResponse(403, data)) {
+              forceLogoutBlocked();
+              return;
+            }
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -78,7 +93,7 @@ export const useSSE = (options: UseSSEOptions = {}) => {
           throw new Error('Response body is null');
         }
 
-        console.log('[SSE] Connected successfully');
+        if (import.meta.env.DEV) console.log('[SSE] Connected successfully');
         setIsConnected(true);
         reconnectAttempts.current = 0;
         isConnectingRef.current = false;
@@ -119,7 +134,9 @@ export const useSSE = (options: UseSSEOptions = {}) => {
                       const data = JSON.parse(jsonStr);
                       if (data.type !== 'connected' && data.type !== 'ping') {
                         setLastEventAt(Date.now());
-                        console.log('[SSE] Event received:', data.type, data.data);
+                        if (import.meta.env.DEV) {
+                          console.log('[SSE] Event received:', data.type, data.data);
+                        }
                         callbacksRef.current.onMessage?.(data);
                       }
                     }
@@ -155,7 +172,9 @@ export const useSSE = (options: UseSSEOptions = {}) => {
         if (reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current++;
           const delay = reconnectDelay * Math.pow(2, reconnectAttempts.current - 1);
-          console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})...`);
+          if (import.meta.env.DEV) {
+            console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})...`);
+          }
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, delay);

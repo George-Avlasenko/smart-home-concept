@@ -24,18 +24,23 @@ public class SensorDataWorker : BackgroundService
         _logger = logger;
     }
 
-    // BackgroundService: хост вызывает ExecuteAsync при старте; тело метода — цикл while + Task.Delay между проходами.
-    // В пояснительной записке блок-схема телеметрии — один линейный проход (без цикла и паузы на схеме): загрузка данных → расчёт → Any → SaveChanges → Publish.
+    /// <summary>
+    /// Алгоритм обработки телеметрии и публикации событий (рис. 2.5 в записке).
+    /// Один проход цикла: загрузка устройств и контекста -> расчёт/нормализация показаний ->
+    /// запись в БД -> публикация device.settings.updated; затем пауза и следующий проход.
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("SensorDataWorker started.");
 
+        // Цикл фонового воркера: каждый проход имитирует один "пакет" телеметрии.
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 using (var scope = _serviceProvider.CreateScope())
                 {
+                    // 1) Загружаем зависимости и текущий срез данных (дома, окна, устройства).
                     var context = scope.ServiceProvider.GetRequiredService<SmartHomeContext>();
                     var eventPublisher = scope.ServiceProvider.GetRequiredService<EventPublisher>();
                     var housesById = await context.Houses.AsNoTracking().ToDictionaryAsync(h => h.HouseId, stoppingToken);
@@ -49,6 +54,7 @@ public class SensorDataWorker : BackgroundService
                         .Where(d => d.Type == "sensor" || d.Type == "thermostat" || (d.Type == "kettle" && d.Status == DeviceStatus.active))
                         .ToListAsync(stoppingToken);
 
+                    // 2) Для каждого устройства рассчитываем очередные значения телеметрии.
                     foreach (var device in devices)
                     {
                         if (device.Type == "sensor")
@@ -139,6 +145,7 @@ public class SensorDataWorker : BackgroundService
                         }
                         else if (device.Type == "thermostat")
                         {
+                            // Спец-ветка термостата: температура стремится к target/ambient в зависимости от статуса.
                             var meta = ParseMeta(device.MetaData);
                             var prevTemp = TryGetDouble(meta, "currentTemp") ?? 21.0;
                             var targetTemp = TryGetDouble(meta, "targetTemp") ?? 22.0;
@@ -184,17 +191,17 @@ public class SensorDataWorker : BackgroundService
                     
                     if (devices.Any())
                     {
+                        // 3) Сохраняем рассчитанные значения в БД.
                         await context.SaveChangesAsync(stoppingToken);
 
-                        foreach (var d in devices)
+                        // 4) Одно SSE-событие пачкой — меньше перерисовок UI, чем N отдельных device.settings.updated.
+                        var telemetryUpdates = devices
+                            .Where(d => d.Type is "sensor" or "thermostat" or "kettle")
+                            .Select(d => new { deviceId = d.DeviceId, settings = ParseMeta(d.MetaData) })
+                            .ToList();
+                        if (telemetryUpdates.Count > 0)
                         {
-                            if (d.Type != "sensor" && d.Type != "thermostat" && d.Type != "kettle") continue;
-                            var settings = ParseMeta(d.MetaData);
-                            await eventPublisher.PublishAsync("device.settings.updated", new
-                            {
-                                deviceId = d.DeviceId,
-                                settings
-                            });
+                            await eventPublisher.PublishAsync("devices.settings.batch", new { updates = telemetryUpdates });
                         }
                     }
                 }
@@ -205,7 +212,7 @@ public class SensorDataWorker : BackgroundService
             }
 
             // Пауза между итерациями цикла (на схеме — «пауза перед следующей итерацией»).
-            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
         }
     }
 

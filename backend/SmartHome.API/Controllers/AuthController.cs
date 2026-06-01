@@ -79,7 +79,7 @@ public class AuthController : ControllerBase
 
             if (user.IsBlocked == true) // Явное приведение для nullable bool
             {
-                return StatusCode(403, new { error = "Ваш аккаунт заблокирован администратором." });
+                return StatusCode(403, new { code = "account_blocked", error = "Ваш аккаунт заблокирован администратором." });
             }
 
             // Проверка пароля
@@ -96,7 +96,8 @@ public class AuthController : ControllerBase
                 Token = token,
                 Username = user.Username,
                 Role = user.Role ?? "user",
-                UserId = user.UserId
+                UserId = user.UserId,
+                AvatarUrl = user.AvatarUrl
             });
         }
         catch (Exception ex)

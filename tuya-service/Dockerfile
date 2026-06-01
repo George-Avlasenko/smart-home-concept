@@ -12,5 +12,5 @@ COPY main.py .
 
 EXPOSE 5055
 
-# Порт по умолчанию совпадает с docker-compose (5055); для bridge-сети можно переопределить.
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5055"]

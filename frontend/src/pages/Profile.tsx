@@ -17,7 +17,7 @@ interface UserProfile {
 }
 
 export const Profile = () => {
-  const { user: _authUser, logout } = useAuth(); // authUser может быть устаревшим по аватарке
+  const { user: _authUser, logout, patchUser } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -52,6 +52,7 @@ export const Profile = () => {
           setProfile(res.data);
           setFullName(res.data.fullName || '');
           setEmail(res.data.email || '');
+          patchUser({ avatarUrl: res.data.avatarUrl || undefined });
       } catch (err) {
           setError('Не удалось загрузить профиль');
       } finally {
@@ -60,19 +61,33 @@ export const Profile = () => {
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-          const formData = new FormData();
-          formData.append('file', e.target.files[0]);
+      const input = e.target;
+      const file = input.files?.[0];
+      if (!file) return;
 
-          try {
-              await api.post('/profile/avatar', formData, {
-                  headers: { 'Content-Type': 'multipart/form-data' }
-              });
-              fetchProfile(); // Обновляем профиль чтобы увидеть новую картинку
-              setSuccess('Фото профиля обновлено');
-          } catch (err) {
-              setError('Ошибка загрузки фото');
-          }
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+          await api.post('/profile/avatar', formData);
+          await fetchProfile();
+          setSuccess('Фото профиля обновлено');
+      } catch (err: unknown) {
+          const ax = err as { response?: { status?: number; data?: unknown } };
+          const data = ax.response?.data;
+          const detail =
+              typeof data === 'string'
+                  ? data
+                  : data && typeof data === 'object' && 'message' in data
+                    ? String((data as { message?: string }).message)
+                    : ax.response?.status === 413
+                      ? 'Файл слишком большой для сервера'
+                      : ax.response?.status
+                        ? `Ошибка сервера (${ax.response.status})`
+                        : '';
+          setError(detail ? `Ошибка загрузки фото: ${detail}` : 'Ошибка загрузки фото');
+      } finally {
+          input.value = '';
       }
   };
 
@@ -80,7 +95,7 @@ export const Profile = () => {
       if (!window.confirm('Удалить фото профиля?')) return;
       try {
           await api.delete('/profile/avatar');
-          fetchProfile();
+          await fetchProfile();
           setSuccess('Фото удалено');
       } catch (err) {
           setError('Ошибка удаления фото');
@@ -137,7 +152,8 @@ export const Profile = () => {
   if (loading) return <GlassPage><Box display="flex" justifyContent="center" py={6}><CircularProgress sx={{ color: '#F08B5C' }} /></Box></GlassPage>;
   if (!profile) return <GlassPage><Alert severity="error">Профиль не найден</Alert></GlassPage>;
 
-  const backendUrl = 'http://localhost:5000'; 
+  // Тот же origin, что и у страницы: /uploads проксируется на бэкенд (Vite / nginx)
+  const avatarSrc = profile.avatarUrl || undefined;
 
   return (
     <GlassPage>
@@ -152,8 +168,9 @@ export const Profile = () => {
         <Box display="flex" flexDirection={isMobile ? 'column' : 'row'} gap={4}>
             {/* Левая колонка: Аватар */}
             <Box display="flex" flexDirection="column" alignItems="center" width={isMobile ? '100%' : '30%'}>
-                <Avatar 
-                    src={profile.avatarUrl ? `${backendUrl}${profile.avatarUrl}` : undefined} 
+                <Avatar
+                    key={avatarSrc ?? 'no-avatar'}
+                    src={avatarSrc}
                     sx={{ width: 150, height: 150, mb: 2, bgcolor: 'primary.main', fontSize: 64 }}
                 >
                     {!profile.avatarUrl && profile.username[0].toUpperCase()}

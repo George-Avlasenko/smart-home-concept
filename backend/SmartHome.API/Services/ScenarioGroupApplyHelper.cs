@@ -64,7 +64,9 @@ public static class ScenarioGroupApplyHelper
                 foreach (var kv in ParseSettings(settingsJson))
                     merged[kv.Key] = kv.Value;
 
-                if (device.Type.Equals("light", StringComparison.OrdinalIgnoreCase) && IsTuyaEnabled(merged))
+                if (device.Type.Equals("light", StringComparison.OrdinalIgnoreCase) &&
+                    IsTuyaEnabled(merged) &&
+                    !DeviceTuyaHelper.IsLocalOnlyDevice(device.HardwareDeviceId, device.MetaData))
                 {
                     var sent = await SendTuyaByScheduleAsync(httpClientFactory, tuyaLocator, merged, targetStatus, logger);
                     if (!sent)

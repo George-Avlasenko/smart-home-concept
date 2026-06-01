@@ -1,9 +1,11 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.FileProviders; 
 using Npgsql;
+using SmartHome.API.Middleware;
 using SmartHome.API.Models;
 using SmartHome.API.Services;
 
@@ -11,6 +13,11 @@ using SmartHome.API.Services;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxRequestBodySize = 30L * 1024 * 1024;
+});
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -48,6 +55,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 30L * 1024 * 1024;
+});
 
 builder.Services.AddHttpClient();
 
@@ -162,6 +174,7 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseAuthentication();
+app.UseMiddleware<BlockedUserMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

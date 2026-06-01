@@ -36,6 +36,8 @@ import { DeskLampIcon, SwitchLeverIcon, isBreakerSwitch, isDeskLamp } from '../c
 import type { Device, House, Room, ScenarioGroup, ScenarioGroupCommand } from '../types';
 import { DeviceStatus } from '../types';
 import { api } from '../api/client';
+import { deviceErrorMsg } from '../utils/deviceErrorMsg';
+import { shouldSkipTuyaLan } from '../utils/isVirtualDevice';
 import { GlassPage } from '../components/GlassPage';
 import { GlassDeviceCard } from '../components/GlassDeviceCard';
 import { Toast } from '../components/Toast';
@@ -654,17 +656,18 @@ export const Groups: React.FC = () => {
       // Сначала настройки в MetaData (Tuya local key и т.д.), затем статус — иначе PUT /status не видит ключи и LAN не сработает.
       for (const c of effective) {
         await api.put(`/devices/${c.deviceId}/settings`, { settings: c.settings });
-        await api.put(`/devices/${c.deviceId}/status`, { status: c.status });
+        const dev = deviceMap.get(c.deviceId);
+        await api.put(`/devices/${c.deviceId}/status`, {
+          status: c.status,
+          skipTuyaLan: dev ? shouldSkipTuyaLan(dev) : false,
+        });
       }
       setToast({ open: true, message: 'Сценарий применён', severity: 'success' });
       const res = await api.get<Device[]>('/devices');
       setDevices(res.data ?? []);
       await persistGroupFromEditor();
     } catch (err: unknown) {
-      const ax = err as { response?: { data?: { message?: string; detail?: string } } };
-      const msg =
-        ax.response?.data?.detail || ax.response?.data?.message || 'Не удалось применить сценарий';
-      setToast({ open: true, message: msg, severity: 'error' });
+      setToast({ open: true, message: deviceErrorMsg(err, 'Не удалось применить сценарий'), severity: 'error' });
     } finally {
       setApplyBusy(false);
     }

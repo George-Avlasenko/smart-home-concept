@@ -14,6 +14,11 @@ export default defineConfig({
         timeout: 0,
         proxyTimeout: 0,
       },
+      '/uploads': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      },
       '/tuya': {
         target: 'http://localhost:5055',
         changeOrigin: true,

@@ -168,9 +168,7 @@ public class DevicesController : ControllerBase
     /// </summary>
     private async Task<string?> TrySendTuyaSwitchAsync(Device device, DeviceStatus targetStatus, CancellationToken ct)
     {
-        // Виртуальные устройства не требуют Tuya LAN/localKey.
-        if (!string.IsNullOrWhiteSpace(device.HardwareDeviceId) &&
-            device.HardwareDeviceId.StartsWith("VIRTUAL-", StringComparison.OrdinalIgnoreCase))
+        if (DeviceTuyaHelper.IsLocalOnlyDevice(device.HardwareDeviceId, device.MetaData))
             return null;
 
         if (!string.Equals(device.Type, "light", StringComparison.OrdinalIgnoreCase)
@@ -298,12 +296,16 @@ public class DevicesController : ControllerBase
                 ct);
 
             if (res.IsSuccessStatusCode) return null;
-            var body = await res.Content.ReadAsStringAsync(ct);
-            return $"tuya-service {(int)res.StatusCode}: {body}";
+            return "Устройство недоступно или не отвечает. Проверьте состояние устройства.";
         }
         catch (Exception ex)
         {
-            return ex.Message;
+            var m = ex.Message ?? "";
+            if (m.Contains("cancel", StringComparison.OrdinalIgnoreCase)
+                || m.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
+                || m.Contains("elapsing", StringComparison.OrdinalIgnoreCase))
+                return "Устройство недоступно или не отвечает. Проверьте состояние устройства.";
+            return "Устройство недоступно или не отвечает. Проверьте состояние устройства.";
         }
     }
 
@@ -1060,15 +1062,22 @@ public class DevicesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Алгоритм выполнения команды устройству (рис. 2.4 в записке):
+    /// аутентификация и проверка прав -> валидация статуса -> попытка отправки команды в Tuya ->
+    /// фиксация нового состояния в БД (и истории) -> публикация SSE-события для обновления UI.
+    /// </summary>
     // PUT: api/devices/5/status
     [HttpPut("{id}/status")]
     public async Task<IActionResult> UpdateDeviceStatus(int id, UpdateDeviceStatusDto dto)
     {
+        // 1) Аутентификация и извлечение контекста пользователя.
         var claim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
         if (claim == null) return Unauthorized();
         var userId = int.Parse(claim.Value);
         var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "user";
 
+        // 2) Поиск устройства и связанного дома для дальнейшей проверки прав.
         var device = await _context.Devices
             .Include(d => d.Room)
             .ThenInclude(r => r.House)
@@ -1080,6 +1089,7 @@ public class DevicesController : ControllerBase
             return NotFound();
         }
 
+        // 3) Авторизация: админ/владелец/совладелец/делегированное право управления.
         if (userRole != "admin")
         {
             bool isOwnerOrCoOwner = device.Room.House.OwnerId == userId || 
@@ -1104,6 +1114,7 @@ public class DevicesController : ControllerBase
         // Точка управления командой: проверяем/отправляем команду устройству, фиксируем состояние и публикуем событие.
         if (Enum.TryParse<DeviceStatus>(dto.Status, true, out var newStatus))
         {
+            // 4) Интеграционный этап: при необходимости отправляем команду в Tuya LAN.(по сути проверка на реальное устройство или эмитация)
             if (!dto.SkipTuyaLan)
             {
                 var tuyaErr = await TrySendTuyaSwitchAsync(device, newStatus, HttpContext.RequestAborted);
@@ -1117,6 +1128,7 @@ public class DevicesController : ControllerBase
                 }
             }
 
+            // 5) Фиксируем новое состояние и журнал изменения статуса.
             device.Status = newStatus;
             
             // Записываем событие изменения статуса
@@ -1131,6 +1143,7 @@ public class DevicesController : ControllerBase
             _context.DeviceStatusHistories.Add(history);
         await _context.SaveChangesAsync();
 
+            // 6) Публикуем SSE-событие для мгновенного обновления интерфейса.
             // Публикуем событие изменения статуса устройства
             Console.WriteLine($"[DevicesController] Publishing device.status.updated event for device {device.DeviceId}, status: {newStatus}");
             await _eventPublisher.PublishAsync("device.status.updated", new
@@ -1143,6 +1156,7 @@ public class DevicesController : ControllerBase
         }
         else
         {
+            // статус из запроса не распознан как enum DeviceStatus.
             return BadRequest($"Неверный статус устройства: {dto.Status}");
         }
 

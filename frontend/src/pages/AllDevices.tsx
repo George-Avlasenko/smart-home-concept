@@ -19,6 +19,8 @@ import { useSSE } from '../hooks/useSSE';
 import { useSelectedHouse } from '../context/SelectedHouseContext';
 import { useAuth } from '../context/AuthContext';
 import { scrollbarLikeDevicesSx } from '../theme/scrollbarStyles';
+import { deviceErrorMsg } from '../utils/deviceErrorMsg';
+import { shouldSkipTuyaLan } from '../utils/isVirtualDevice';
 
 export const AllDevices = () => {
   const { selectedHouseId, setSelectedHouseId } = useSelectedHouse();
@@ -208,23 +210,27 @@ export const AllDevices = () => {
   });
 
   const handleToggleDevice = useCallback(async (id: number, newStatus: DeviceStatus) => {
+    setDevices(prev =>
+      prev.map(d => (d.deviceId === id ? { ...d, status: newStatus } : d))
+    );
     try {
-      await api.put(`/devices/${id}/status`, { status: newStatus });
-      fetchDevices();
-    } catch (err: any) {
-      const data = err?.response?.data;
-      const msg = typeof data === 'string'
-        ? data
-        : data?.detail || data?.message || 'Ошибка при изменении статуса';
-      setError(msg);
+      const dev = devices.find((d) => d.deviceId === id);
+      await api.put(`/devices/${id}/status`, {
+        status: newStatus,
+        skipTuyaLan: dev ? shouldSkipTuyaLan(dev) : false,
+      });
+    } catch (err: unknown) {
+      setError(deviceErrorMsg(err, 'Ошибка при изменении статуса'));
       fetchDevices();
     }
-  }, [fetchDevices]);
+  }, [devices, fetchDevices]);
 
   const handleSettingsChange = useCallback(async (id: number, newSettings: Record<string, any>) => {
+    setDevices(prev =>
+      prev.map(d => (d.deviceId === id ? { ...d, settings: { ...d.settings, ...newSettings } } : d))
+    );
     try {
       await api.put(`/devices/${id}/settings`, { settings: newSettings });
-      fetchDevices();
     } catch (err) {
       console.error(err);
       fetchDevices();

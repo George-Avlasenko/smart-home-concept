@@ -927,8 +927,6 @@ export const HouseManagement = () => {
   useSSE({
     enabled: initialLoadDone,
     onMessage: async (event) => {
-      console.log('SSE event received in HouseManagement:', event);
-      
       switch (event.type) {
         case 'house.created':
         case 'house.updated':
@@ -969,7 +967,6 @@ export const HouseManagement = () => {
           break;
         
         case 'device.settings.updated':
-          // Обновляем только settings из события
           setAllDevices(prev => prev.map(d => 
             d.deviceId === event.data.deviceId 
               ? { ...d, settings: { ...d.settings, ...event.data.settings } } 
@@ -981,6 +978,20 @@ export const HouseManagement = () => {
               : d
           ));
           break;
+
+        case 'devices.settings.batch': {
+          const updates = event.data?.updates as { deviceId: number; settings: Record<string, unknown> }[] | undefined;
+          if (!updates?.length) break;
+          const byId = new Map(updates.map(u => [u.deviceId, u.settings]));
+          const applyBatch = (prev: Device[]) =>
+            prev.map(d => {
+              const patch = byId.get(d.deviceId);
+              return patch ? { ...d, settings: { ...d.settings, ...patch } } : d;
+            });
+          setAllDevices(applyBatch);
+          setHouseDevices(applyBatch);
+          break;
+        }
         
         case 'house.user.added':
         case 'house.user.removed':
@@ -1569,7 +1580,11 @@ export const HouseManagement = () => {
               });
           }
           setResidentPermissions(prev => ({ ...prev, [deviceId]: level }));
-      } catch (err) { console.error(err); }
+      } catch (err: any) {
+          const data = err?.response?.data;
+          const msg = typeof data === 'string' ? data : data?.detail || data?.message || data?.title || 'Не удалось сохранить права';
+          setError(msg);
+      }
   };
 
   const handleOpenSchedule = async (device: Device) => {

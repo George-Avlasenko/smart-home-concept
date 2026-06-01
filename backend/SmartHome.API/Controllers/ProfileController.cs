@@ -132,13 +132,19 @@ public class ProfileController : ControllerBase
             await file.CopyToAsync(fileStream);
         }
 
-        // Удаляем старую аватарку, если была
+        // Удаляем старую аватарку; сбой удаления не должен рвать загрузку (файл может быть занят превью ОС)
         if (!string.IsNullOrEmpty(user.AvatarUrl))
         {
-            var oldPath = Path.Combine(webRootPath, user.AvatarUrl.TrimStart('/'));
-            if (System.IO.File.Exists(oldPath))
+            try
             {
-                System.IO.File.Delete(oldPath);
+                var relative = user.AvatarUrl.TrimStart('/', '\\');
+                var oldPath = Path.Combine(webRootPath, relative);
+                if (System.IO.File.Exists(oldPath))
+                    System.IO.File.Delete(oldPath);
+            }
+            catch (IOException)
+            {
+                // новый файл уже записан — продолжаем обновление записи в БД
             }
         }
 

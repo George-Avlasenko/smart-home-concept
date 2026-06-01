@@ -153,7 +153,9 @@ namespace SmartHome.API.Services
                 }
 
                 // Для Tuya-ламп пробуем LAN; при сбое всё равно обновляем БД, если статус должен смениться.
-                if (device.Type.Equals("light", StringComparison.OrdinalIgnoreCase) && IsTuyaEnabled(settingsDict))
+                if (device.Type.Equals("light", StringComparison.OrdinalIgnoreCase) &&
+                    IsTuyaEnabled(settingsDict) &&
+                    !DeviceTuyaHelper.IsLocalOnlyDevice(device.HardwareDeviceId, device.MetaData))
                 {
                     var sent = await SendTuyaByScheduleAsync(httpClientFactory, _tuyaServiceLocator, settingsDict, targetStatus);
                     if (!sent)

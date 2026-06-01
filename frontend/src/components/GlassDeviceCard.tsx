@@ -24,6 +24,8 @@ import { ScheduleDialog } from './ScheduleDialog';
 import { SensorStatsDialog } from './SensorStatsDialog';
 import { useAuth } from '../context/AuthContext';
 import { tuyaApi } from '../api/tuyaClient';
+import { deviceErrorMsg } from '../utils/deviceErrorMsg';
+import { hasTuyaLanConfig } from '../utils/isVirtualDevice';
 import { DeskLampIcon, SwitchLeverIcon, isBreakerSwitch, isDeskLamp } from './DeviceIcons';
 
 type TuyaColorPending = { h: number; s: number; v: number };
@@ -165,7 +167,10 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
   const [settingsExpanded, setSettingsExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalSettings(settings);
+    setLocalSettings(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(settings)) return prev;
+      return settings;
+    });
   }, [settings]);
 
   const tuyaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,7 +179,13 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
   const tuyaModeRef = useRef<'white' | 'colour'>('white');
   const tuyaSuppressColorUntilRef = useRef(0);
   const tuyaWhiteLockRef = useRef(false);
-  const isTuyaLight = !scenarioDraft && isLight && !!(localSettings?.tuya?.enabled || settings?.tuya?.enabled);
+  const tuyaDevice = {
+    hardwareDeviceId: device.hardwareDeviceId,
+    ip: device.ip,
+    settings: localSettings ?? settings,
+  };
+  const tuyaLanOn = hasTuyaLanConfig(tuyaDevice);
+  const isTuyaLight = !scenarioDraft && isLight && tuyaLanOn;
   const lightCaps = isLight ? parseLightCapabilities(localSettings, settings) : { cct: false, rgb: false };
   const showLightCct = isLight && lightCaps.cct;
   const showLightRgb = isLight && lightCaps.rgb;
@@ -209,12 +220,8 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
     try {
       await tuyaApi.post('/v1/switch', { ...getTuyaBasePayload(), on });
       setTuyaErrorBoth('');
-    } catch (err: any) {
-      const data = err?.response?.data;
-      const detail = typeof data === 'string'
-        ? data
-        : data?.detail || data?.message || err?.message || `Ошибка управления Tuya (${err?.response?.status ?? 'network'})`;
-      setTuyaErrorBoth(String(detail));
+    } catch (err: unknown) {
+      setTuyaErrorBoth(deviceErrorMsg(err, 'Ошибка управления устройством'));
     }
   }, [canSendToTuya, getTuyaBasePayload, setTuyaErrorBoth]);
 
@@ -246,12 +253,8 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
         });
       }
       setTuyaErrorBoth('');
-    } catch (err: any) {
-      const data = err?.response?.data;
-      const detail = typeof data === 'string'
-        ? data
-        : data?.detail || data?.message || err?.message || `Ошибка управления Tuya (${err?.response?.status ?? 'network'})`;
-      setTuyaErrorBoth(String(detail));
+    } catch (err: unknown) {
+      setTuyaErrorBoth(deviceErrorMsg(err, 'Ошибка управления устройством'));
     } finally {
       tuyaFlushInFlightRef.current = false;
       // If something new came while request was in flight, flush again (single-flight queue).
@@ -315,8 +318,8 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
 
   useEffect(() => {
     const isOutlet = device.type.toLowerCase() === 'outlet';
-    const tuyaEnabled = !!(localSettings?.tuya?.enabled || settings?.tuya?.enabled);
-    const canPoll = !scenarioDraft && isOutlet && tuyaEnabled;
+    const tuyaEnabled = tuyaLanOn;
+    const canPoll = !scenarioDraft && isOutlet && tuyaEnabled && canSendToTuya();
     if (!canPoll) return;
 
     let cancelled = false;
@@ -330,12 +333,12 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), 5000);
+    const id = window.setInterval(() => void poll(), 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [device.type, localSettings, settings, scenarioDraft, getTuyaBasePayload]);
+  }, [device.deviceId, device.type, scenarioDraft, getTuyaBasePayload, canSendToTuya, tuyaLanOn]);
 
   // Отправляем изменения настроек на сервер с задержкой
   useEffect(() => {
@@ -435,7 +438,6 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
         borderRadius: 4,
         // При скроллинге hover/transform может давать подлагивания, поэтому для списков (reducedBlur) делаем анимацию легче.
         transition: reducedBlur ? 'border-color 0.25s ease' : 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease',
-        opacity: device.status === 'offline' ? 0.5 : 1,
         '&:hover': {
           boxShadow: reducedBlur || isLarge ? undefined : '0 6px 18px 0 rgba(240, 139, 92, 0.24)',
           transform: reducedBlur || isLarge ? 'none' : 'translateY(-4px)',
@@ -525,7 +527,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                 checked={isActive}
                 onChange={handleToggle}
                 onClick={(e) => e.stopPropagation()}
-                disabled={device.status === 'offline' || isReadOnly}
+                disabled={isReadOnly}
                 sx={{
                   '& .MuiSwitch-switchBase.Mui-checked': {
                     color: '#F08B5C',
@@ -719,7 +721,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
               }} 
               min={1} 
               max={100} 
-              disabled={isReadOnly || device.status === 'offline'}
+              disabled={isReadOnly}
               size="small"
               sx={{
                 color: '#F08B5C',
@@ -750,7 +752,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   min={2700}
                   max={6500}
                   step={50}
-                  disabled={isReadOnly || device.status === 'offline'}
+                  disabled={isReadOnly}
                   valueLabelDisplay="auto"
                   size="small"
                   sx={{
@@ -772,14 +774,14 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   borderRadius: 1,
                   px: 0.25,
                   py: 0.25,
-                  cursor: (isReadOnly || device.status === 'offline') ? 'default' : 'pointer',
+                  cursor: (isReadOnly) ? 'default' : 'pointer',
                   '&:hover': {
-                    backgroundColor: (isReadOnly || device.status === 'offline') ? 'transparent' : 'rgba(255,255,255,0.06)',
+                    backgroundColor: (isReadOnly) ? 'transparent' : 'rgba(255,255,255,0.06)',
                   },
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (isReadOnly || device.status === 'offline') return;
+                  if (isReadOnly) return;
                   const nextExpanded = settingsExpanded !== 'lightRgb';
                   setSettingsExpanded(nextExpanded ? 'lightRgb' : null);
                   // Для RGB-only ламп раскрытие RGB-блока сразу фиксирует режим в colour.
@@ -801,7 +803,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   <Checkbox
                     checked={settingsExpanded === 'lightRgb'}
                     onChange={() => { /* toggle handled by row click */ }}
-                    disabled={isReadOnly || device.status === 'offline'}
+                    disabled={isReadOnly}
                     sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#7E57C2' }, p: 0.5, mr: 0.25 }}
                   />
                 }
@@ -836,7 +838,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                     min={0}
                     max={360}
                     step={1}
-                    disabled={isReadOnly || device.status === 'offline'}
+                    disabled={isReadOnly}
                     valueLabelDisplay="auto"
                     size="small"
                     sx={{
@@ -867,7 +869,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                     }}
                     min={0}
                     max={100}
-                    disabled={isReadOnly || device.status === 'offline'}
+                    disabled={isReadOnly}
                     valueLabelDisplay="auto"
                     size="small"
                     sx={{
@@ -898,7 +900,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                     <Checkbox
                       checked={!!localSettings.useTempRange}
                       onChange={(_, checked) => handleLocalChange('useTempRange', checked)}
-                      disabled={isReadOnly || device.status === 'offline'}
+                      disabled={isReadOnly}
                       sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
                     />
                   }
@@ -910,14 +912,14 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
                       <Slider size="small" value={localSettings.minTemp ?? 18} min={14} max={28} step={1}
                         onChange={(_, v) => handleLocalChange('minTemp', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
+                        disabled={isReadOnly}
                         sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
                       <Slider size="small" value={localSettings.maxTemp ?? 24} min={16} max={30} step={1}
                         onChange={(_, v) => handleLocalChange('maxTemp', v as number)} valueLabelDisplay="auto"
-                        disabled={isReadOnly || device.status === 'offline'}
+                        disabled={isReadOnly}
                         sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                     </Box>
                   </>
@@ -925,7 +927,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   <>
                     <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 0.5, display: 'block' }}>Целевая °C</Typography>
                     <Slider value={localSettings.targetTemp ?? 22} onChange={(_, val) => handleLocalChange('targetTemp', val)} min={16} max={30} step={0.5}
-                      disabled={isReadOnly || device.status === 'offline'} valueLabelDisplay="auto" size="small"
+                      disabled={isReadOnly} valueLabelDisplay="auto" size="small"
                       sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                   </>
                 )}
@@ -936,7 +938,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                       <Checkbox
                         checked={!!localSettings.ionization}
                         onChange={(_, checked) => handleLocalChange('ionization', checked)}
-                        disabled={isReadOnly || device.status === 'offline'}
+                        disabled={isReadOnly}
                         sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#4ECDC4' } }}
                       />
                     }
@@ -959,7 +961,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
               max={100} 
               step={5}
               marks
-              disabled={isReadOnly || device.status === 'offline'}
+              disabled={isReadOnly}
               valueLabelDisplay="auto"
               size="small"
               sx={{
@@ -983,7 +985,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', display: 'block', mb: 0.75 }}>
               Состояние: {localSettings.mode === 'opened' ? 'Открыто' : localSettings.mode === 'tilted' ? 'Проветривание' : 'Закрыто'}
             </Typography>
-            <FormControl fullWidth size="small" disabled={isReadOnly || device.status === 'offline'}>
+            <FormControl fullWidth size="small" disabled={isReadOnly}>
               <InputLabel id={`window-mode-label-${device.deviceId}`} sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                 Режим
               </InputLabel>
@@ -1024,7 +1026,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
 
         {device.type.toLowerCase() === 'curtain' && (
           <Box mt={2}>
-            <FormControl fullWidth size="small" disabled={isReadOnly || device.status === 'offline'}>
+            <FormControl fullWidth size="small" disabled={isReadOnly}>
               <InputLabel id={`curtain-mode-label-${device.deviceId}`} sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                 Шторы
               </InputLabel>
@@ -1071,7 +1073,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   <Checkbox
                     checked={!!localSettings.useHumidityRange}
                     onChange={(_, checked) => handleLocalChange('useHumidityRange', checked)}
-                    disabled={isReadOnly || device.status === 'offline'}
+                    disabled={isReadOnly}
                     sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
                   />
                 }
@@ -1083,21 +1085,21 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                     <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
                     <Slider size="small" value={localSettings.minHumidity ?? 30} min={20} max={70} step={5}
                       onChange={(_, v) => handleLocalChange('minHumidity', v as number)} valueLabelDisplay="auto"
-                      disabled={isReadOnly || device.status === 'offline'}
+                      disabled={isReadOnly}
                       sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                   </Box>
                   <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
                     <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
                     <Slider size="small" value={localSettings.maxHumidity ?? 60} min={30} max={85} step={5}
                       onChange={(_, v) => handleLocalChange('maxHumidity', v as number)} valueLabelDisplay="auto"
-                      disabled={isReadOnly || device.status === 'offline'}
+                      disabled={isReadOnly}
                       sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
                   </Box>
                 </>
               ) : (
                 <Slider size="small" value={localSettings.targetHumidity ?? 50} min={30} max={80} step={5}
                   onChange={(_, v) => handleLocalChange('targetHumidity', v as number)} valueLabelDisplay="auto"
-                  disabled={isReadOnly || device.status === 'offline'}
+                  disabled={isReadOnly}
                   sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' }, mt: 0.5 }} />
               )}
             </Box>
@@ -1116,7 +1118,7 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                   <Checkbox
                     checked={!!localSettings.useCo2Range}
                     onChange={(_, checked) => handleLocalChange('useCo2Range', checked)}
-                    disabled={isReadOnly || device.status === 'offline'}
+                    disabled={isReadOnly}
                     sx={{ color: 'rgba(255,255,255,0.7)', '&.Mui-checked': { color: '#F08B5C' } }}
                   />
                 }
@@ -1126,14 +1128,14 @@ const GlassDeviceCardInner: React.FC<GlassDeviceCardProps> = ({
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Мин</Typography>
                 <Slider size="small" value={localSettings.co2Min ?? 600} min={400} max={1500} step={100}
                   onChange={(_, v) => handleLocalChange('co2Min', v as number)} valueLabelDisplay="auto"
-                  disabled={isReadOnly || device.status === 'offline' || !localSettings.useCo2Range}
+                  disabled={isReadOnly || !localSettings.useCo2Range}
                   sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
               </Box>
               <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 28 }}>Макс</Typography>
                 <Slider size="small" value={localSettings.co2Max ?? 1200} min={800} max={2000} step={100}
                   onChange={(_, v) => handleLocalChange('co2Max', v as number)} valueLabelDisplay="auto"
-                  disabled={isReadOnly || device.status === 'offline' || !localSettings.useCo2Range}
+                  disabled={isReadOnly || !localSettings.useCo2Range}
                   sx={{ color: '#F08B5C', '& .MuiSlider-thumb': { boxShadow: '0 0 10px rgba(240, 139, 92, 0.5)' } }} />
               </Box>
             </Box>

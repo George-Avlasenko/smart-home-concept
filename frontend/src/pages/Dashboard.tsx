@@ -45,6 +45,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../api/client';
+import { deviceErrorMsg } from '../utils/deviceErrorMsg';
+import { shouldSkipTuyaLan } from '../utils/isVirtualDevice';
 import { DeviceStatus } from '../types';
 import type { Device, House } from '../types';
 import { GlassTopBar } from '../components/GlassTopBar';
@@ -330,6 +332,17 @@ export const Dashboard = () => {
               : d
           ));
           break;
+
+        case 'devices.settings.batch': {
+          const updates = event.data?.updates as { deviceId: number; settings: Record<string, unknown> }[] | undefined;
+          if (!updates?.length) break;
+          const byId = new Map(updates.map(u => [u.deviceId, u.settings]));
+          setDevices(prev => prev.map(d => {
+            const patch = byId.get(d.deviceId);
+            return patch ? { ...d, settings: { ...d.settings, ...patch } } : d;
+          }));
+          break;
+        }
         case 'house.outdoor_updated':
           if (event.data?.houseId != null)
             setDevices(prev => prev.map(d => d.houseId === event.data.houseId ? { ...d, outdoorTemp: event.data.outdoorTemp, outdoorHumidity: event.data.outdoorHumidity, outdoorCo2: event.data.outdoorCo2 } : d));
@@ -364,34 +377,32 @@ export const Dashboard = () => {
   });
 
   const handleToggleDevice = async (id: number, newStatus: DeviceStatus) => {
+    setDevices(prev =>
+      prev.map(d => (d.deviceId === id ? { ...d, status: newStatus } : d))
+    );
     try {
-      await api.put(`/devices/${id}/status`, { status: newStatus });
-      fetchDevices();
-    } catch (err) {
-      setError('Ошибка при изменении статуса');
+      const dev = devices.find((d) => d.deviceId === id);
+      await api.put(`/devices/${id}/status`, {
+        status: newStatus,
+        skipTuyaLan: dev ? shouldSkipTuyaLan(dev) : false,
+      });
+    } catch (err: unknown) {
+      setError(deviceErrorMsg(err, 'Ошибка при изменении статуса'));
       fetchDevices();
     }
   };
 
   const handleSettingsChange = async (id: number, newSettings: Record<string, any>) => {
+    setDevices(prev =>
+      prev.map(d => (d.deviceId === id ? { ...d, settings: { ...d.settings, ...newSettings } } : d))
+    );
     try {
       await api.put(`/devices/${id}/settings`, { settings: newSettings });
-      fetchDevices();
     } catch (err) {
       console.error(err);
       fetchDevices();
     }
   };
-
-  const fetchDevicesRef = useRef(fetchDevices);
-  const fetchHousesRef = useRef(fetchHouses);
-  fetchDevicesRef.current = fetchDevices;
-  fetchHousesRef.current = fetchHouses;
-  useEffect(() => {
-    if (!selectedHouseId) return;
-    const t = setInterval(() => { fetchDevicesRef.current(); fetchHousesRef.current(); }, 10000);
-    return () => clearInterval(t);
-  }, [selectedHouseId]);
 
   const updateHouseClimate = async (patch: { useTempRange?: boolean; minTemp?: number; maxTemp?: number }) => {
     if (selectedHouseId == null) return;
@@ -574,7 +585,7 @@ export const Dashboard = () => {
     if (!selectedHouseId || houseSensors.length === 0) return;
     const timer = setInterval(() => {
       void loadHouseChart(true);
-    }, 10000);
+    }, 60_000);
     return () => clearInterval(timer);
   }, [selectedHouseId, houseSensors.length, loadHouseChart]);
 
@@ -1401,7 +1412,7 @@ export const Dashboard = () => {
                     </Box>
                     <Box sx={{ py: 6, textAlign: 'center' }}>
                       <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                        Нет данных за выбранный период. Запустите эмулятор или подождите накопления показаний.
+                        Нет данных за выбранный период. Подождите накопления показаний.
                       </Typography>
                     </Box>
                   </>

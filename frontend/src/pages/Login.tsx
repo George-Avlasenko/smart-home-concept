@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import type { AuthResponse } from '../types';
 import { Box, Button, TextField, Typography, Container, Paper, Alert } from '@mui/material';
+import { glassAuthTextFieldSx } from './authTextFieldStyles';
+import './authAutofill.css';
+import { ACCOUNT_BLOCKED_FLAG } from '../utils/accountBlocked';
 
 export const Login = () => {
   const [username, setUsername] = useState('');
@@ -19,6 +22,11 @@ export const Login = () => {
     if (tokenExpired === 'true') {
       setError('Сессия истекла. Пожалуйста, войдите снова.');
       sessionStorage.removeItem('tokenExpired');
+    }
+    const accountBlocked = sessionStorage.getItem(ACCOUNT_BLOCKED_FLAG);
+    if (accountBlocked === 'true') {
+      setError('Ваш аккаунт заблокирован администратором.');
+      sessionStorage.removeItem(ACCOUNT_BLOCKED_FLAG);
     }
   }, []);
 
@@ -56,23 +64,8 @@ export const Login = () => {
     }
   };
 
-  const inputSx = {
-    '& .MuiOutlinedInput-root': {
-      backgroundColor: 'rgba(255, 255, 255, 0.06)',
-      color: '#fff',
-      '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-      '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.35)' },
-'&.Mui-focused fieldset': { borderColor: '#F08B5C', borderWidth: 2 },
-    '&.Mui-error fieldset': { borderColor: '#FF6B6B' },
-  },
-  '& .MuiInputLabel-outlined': { color: 'rgba(255, 255, 255, 0.7)' },
-  '& .MuiInputLabel-outlined.Mui-focused': { color: '#F08B5C' },
-    '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.6)' },
-    '& .MuiFormHelperText-root.Mui-error': { color: '#FF8A8A' },
-  };
-
   return (
-    <Container component="main" maxWidth="xs">
+    <Container component="main" maxWidth="xs" className="auth-screen">
       <Box
         sx={{
           marginTop: 8,
@@ -84,6 +77,7 @@ export const Login = () => {
         <Paper
           elevation={0}
           sx={{
+            position: 'relative',
             p: 4,
             width: '100%',
             background: 'rgba(255, 255, 255, 0.12)',
@@ -103,12 +97,14 @@ export const Login = () => {
             </Alert>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} noValidate>
+          <Box component="form" autoComplete="off" onSubmit={handleSubmit} noValidate>
             <TextField
               margin="normal"
               required
               fullWidth
               label="Имя пользователя"
+              name="sh_login_uid"
+              autoComplete="off"
               autoFocus
               value={username}
               onChange={(e) => {
@@ -120,15 +116,17 @@ export const Login = () => {
               onBlur={() => handleBlur('username')}
               error={touched.username && !isUsernameValid}
               helperText={touched.username && !isUsernameValid ? "Введите имя пользователя" : `${username.length}/30`}
-              inputProps={{ maxLength: 30 }}
-              sx={inputSx}
+              inputProps={{ maxLength: 30, autoComplete: 'off', spellCheck: false }}
+              sx={glassAuthTextFieldSx}
             />
             <TextField
               margin="normal"
               required
               fullWidth
               label="Пароль"
+              name="sh_login_secret"
               type="password"
+              autoComplete="off"
               value={password}
               onChange={(e) => {
                 const val = e.target.value;
@@ -139,8 +137,8 @@ export const Login = () => {
               onBlur={() => handleBlur('password')}
               error={touched.password && !isPasswordValid}
               helperText={touched.password && !isPasswordValid ? "Введите пароль" : `${password.length}/50`}
-              inputProps={{ maxLength: 50 }}
-              sx={inputSx}
+              inputProps={{ maxLength: 50, autoComplete: 'off', spellCheck: false }}
+              sx={glassAuthTextFieldSx}
             />
             <Button
               type="submit"

@@ -1,0 +1,39 @@
+/**
+ * Подсветка жёлтым/коричневым — это UA Chromium при :-webkit-autofill.
+ * Полностью «перекрасить» её CSS не гарантируется; на формах входа/регистрации
+ * отключено автозаполнение (autoComplete=off, нетипичные name) + тёмная color-scheme.
+ * Ниже — страховка, если браузер всё же пометит поле как autofill.
+ */
+.auth-screen {
+  --auth-textfield-fill: rgba(255, 255, 255, 0.06);
+  --auth-textfield-text: #ffffff;
+  color-scheme: dark;
+}
+
+.auth-screen input:-webkit-autofill,
+.auth-screen input:-webkit-autofill:hover,
+.auth-screen input:-webkit-autofill:focus,
+.auth-screen input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--auth-textfield-fill) inset !important;
+  box-shadow: 0 0 0 1000px var(--auth-textfield-fill) inset !important;
+  -webkit-text-fill-color: var(--auth-textfield-text) !important;
+  caret-color: var(--auth-textfield-text) !important;
+}
+
+.auth-screen input:autofill,
+.auth-screen input:autofill:hover,
+.auth-screen input:autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--auth-textfield-fill) inset !important;
+  box-shadow: 0 0 0 1000px var(--auth-textfield-fill) inset !important;
+  -webkit-text-fill-color: var(--auth-textfield-text) !important;
+  caret-color: var(--auth-textfield-text) !important;
+}
+
+.auth-screen input:-moz-autofill {
+  box-shadow: 0 0 0 1000px var(--auth-textfield-fill) inset !important;
+  color: var(--auth-textfield-text) !important;
+}
+
+.auth-screen .MuiOutlinedInput-root:has(input:-webkit-autofill) {
+  background-color: var(--auth-textfield-fill) !important;
+}

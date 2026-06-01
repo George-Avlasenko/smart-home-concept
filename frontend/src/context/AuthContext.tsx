@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { User } from '../types';
 
 interface AuthContextType {
@@ -6,6 +6,8 @@ interface AuthContextType {
   token: string | null;
   login: (token: string, user: User) => void;
   logout: () => void;
+  /** Обновить поля пользователя в контексте и sessionStorage (например avatarUrl после смены фото) */
+  patchUser: (partial: Partial<User>) => void;
   isAuthenticated: boolean;
 }
 
@@ -33,6 +35,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(newUser);
   };
 
+  const patchUser = useCallback((partial: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      const next: User = { ...prev };
+      (Object.entries(partial) as [keyof User, User[keyof User]][]).forEach(([key, value]) => {
+        if (value === undefined) {
+          delete (next as Record<string, unknown>)[key as string];
+        } else {
+          (next as Record<string, unknown>)[key as string] = value as unknown;
+        }
+      });
+      sessionStorage.setItem('user', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const logout = () => {
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('user');
@@ -41,7 +59,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, login, logout, patchUser, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

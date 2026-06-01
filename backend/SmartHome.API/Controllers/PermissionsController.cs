@@ -33,6 +33,15 @@ public class PermissionsController : ControllerBase
         return int.Parse(claim.Value);
     }
 
+    /// <summary>Владелец дома или совладелец (house_users.role = admin).</summary>
+    private async Task<bool> CanManageHousePermissionsAsync(int houseId, int userId)
+    {
+        if (await _context.Houses.AnyAsync(h => h.HouseId == houseId && h.OwnerId == userId))
+            return true;
+        return await _context.HouseUsers.AnyAsync(hu =>
+            hu.HouseId == houseId && hu.UserId == userId && hu.Role == "admin");
+    }
+
     // GET: api/permissions/device/5
     [HttpGet("device/{deviceId}")]
     public async Task<ActionResult<IEnumerable<UserDevicePermissionDto>>> GetDevicePermissions(int deviceId)
@@ -45,11 +54,8 @@ public class PermissionsController : ControllerBase
 
         if (device == null) return NotFound();
 
-        // Просмотр прав только у владельца дома
-        if (device.Room.House.OwnerId != userId)
-        {
-            return Forbid();
-        }
+        if (!await CanManageHousePermissionsAsync(device.Room.HouseId, userId))
+            return Forbid("Только владелец или совладелец может просматривать права");
 
         return await _context.UserDevicePermissions
             .Where(p => p.DeviceId == deviceId)
@@ -133,8 +139,8 @@ public class PermissionsController : ControllerBase
             .ThenInclude(r => r.House)
             .FirstOrDefaultAsync(d => d.DeviceId == deviceId);
         if (device == null) return NotFound();
-        if (device.Room.House.OwnerId != userId)
-            return Forbid("Только владелец может управлять правами");
+        if (!await CanManageHousePermissionsAsync(device.Room.HouseId, userId))
+            return Forbid("Только владелец или совладелец может управлять правами");
 
         var permission = await _context.UserDevicePermissions
             .FirstOrDefaultAsync(p => p.UserId == targetUserId && p.DeviceId == deviceId);
@@ -159,10 +165,8 @@ public class PermissionsController : ControllerBase
 
         if (permission == null) return NotFound();
 
-        if (permission.Device.Room.House.OwnerId != userId)
-        {
-            return Forbid();
-        }
+        if (!await CanManageHousePermissionsAsync(permission.Device.Room.HouseId, userId))
+            return Forbid("Только владелец или совладелец может управлять правами");
 
         var deviceId = permission.DeviceId;
         var targetUserId = permission.UserId;
